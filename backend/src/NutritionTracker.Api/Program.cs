@@ -1,4 +1,11 @@
+using Microsoft.EntityFrameworkCore;
+using NutritionTracker.Api.Config;
+using NutritionTracker.Api.Data;
+
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseMySql(DatabaseConnection.Build(builder.Configuration), new MySqlServerVersion(new Version(8, 4, 0))));
 
 var app = builder.Build();
 
