@@ -27,7 +27,87 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
     /// </summary>
     public async Task<MealRecordSaveResultDto> CreateAsync(MealRecordInput input)
     {
-        var resolved = await ValidateAsync(input);
+        var record = await BuildRecordAsync(input, await ValidateAsync(input));
+        db.MealRecords.Add(record);
+        await db.SaveChangesAsync();
+        return await ToSaveResultAsync(record.Id);
+    }
+
+    /// <summary>
+    /// API-21 他の日の記録をコピーする（「昨日と同じ」）。<b>現在のメニュー・食材の内容で再計算</b>してスナップショットを作る。
+    /// 論理削除されたメニュー・無効な食材はスキップして <c>skipped</c> に載せる。全記録を 1 回の保存で作る。
+    /// </summary>
+    public async Task<MealRecordCopyResultDto> CopyAsync(MealRecordCopyInput input)
+    {
+        var errors = new List<ErrorDetail>();
+        if (input.FromDate is null)
+        {
+            errors.Add(new ErrorDetail("fromDate", "コピー元の日付を指定してください"));
+        }
+        if (input.ToDate is null)
+        {
+            errors.Add(new ErrorDetail("toDate", "コピー先の日付を指定してください"));
+        }
+        if (errors.Count == 0 && input.FromDate == input.ToDate)
+        {
+            errors.Add(new ErrorDetail("toDate", "コピー元と異なる日付を指定してください"));
+        }
+        if (errors.Count > 0)
+        {
+            throw new ValidationException(errors);
+        }
+        var from = input.FromDate!.Value;
+        var to = input.ToDate!.Value;
+
+        var sources = await db.MealRecords.AsNoTracking()
+            .Include(r => r.Items).ThenInclude(i => i.Menu)
+            .Include(r => r.Items).ThenInclude(i => i.Food)
+            .Where(r => r.UserId == User.FixedUserId && r.EatenOn == from)
+            .OrderBy(r => r.Id)
+            .ToListAsync();
+        if (sources.Count == 0)
+        {
+            throw new ValidationException("fromDate", "コピー元の日に記録がありません");
+        }
+        if (input.AllowExisting != true && await db.MealRecords.AnyAsync(r => r.UserId == User.FixedUserId && r.EatenOn == to))
+        {
+            throw new ConflictException("コピー先の日にすでに記録があります", [new ErrorDetail("toDate", "TARGET_DATE_HAS_RECORDS")]);
+        }
+
+        var skipped = new List<SkippedItemDto>();
+        var created = new List<MealRecord>();
+        foreach (var source in sources)
+        {
+            var items = new List<MealRecordItemInput>();
+            foreach (var item in source.Items.OrderBy(i => i.Id))
+            {
+                if (item.Menu is { DeletedAt: not null })
+                {
+                    skipped.Add(new SkippedItemDto(item.MenuId, null, "MENU_DELETED"));
+                }
+                else if (item.Food is { IsActive: false })
+                {
+                    skipped.Add(new SkippedItemDto(null, item.FoodId, "FOOD_INACTIVE"));
+                }
+                else
+                {
+                    items.Add(new MealRecordItemInput(item.MenuId, item.FoodId, item.UnitId, item.InputMode, item.InputValue));
+                }
+            }
+            if (items.Count == 0)
+            {
+                continue;
+            }
+            var request = new MealRecordInput(to, source.MealType, source.Memo, items);
+            created.Add(await BuildRecordAsync(request, await ValidateAsync(request)));
+        }
+        db.MealRecords.AddRange(created);
+        await db.SaveChangesAsync();
+        return new MealRecordCopyResultDto(await LoadAsync(r => created.Select(c => c.Id).Contains(r.Id)), skipped);
+    }
+
+    private async Task<MealRecord> BuildRecordAsync(MealRecordInput input, List<ResolvedItem> resolved)
+    {
         var record = new MealRecord
         {
             UserId = User.FixedUserId,
@@ -39,10 +119,9 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
         {
             record.Items.Add(await BuildItemAsync(item));
         }
-        db.MealRecords.Add(record);
-        await db.SaveChangesAsync();
-        return await ToSaveResultAsync(record.Id);
+        return record;
     }
+
 
     /// <summary>
     /// API-15 食事記録の更新（全項目置換）。入力が変わった項目はその時点のメニュー・食材の内容でスナップショットを再計算して置き換え、

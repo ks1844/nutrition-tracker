@@ -433,4 +433,102 @@ public class MealRecordsApiTests(ApiFixture fixture) : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.DeleteAsync($"/api/meal-records/{created.Id}")).StatusCode);
     }
+
+    // ---- API-21 コピー ----
+    private static readonly DateOnly Yesterday = Day.AddDays(-1);
+
+    private async Task<HttpResponseMessage> CopyAsync(DateOnly? from, DateOnly? to, bool? allowExisting = null) =>
+        await fixture.Client.PostAsJsonAsync("/api/meal-records/copy", new MealRecordCopyInput(from, to, allowExisting));
+
+    [Fact]
+    public async Task AC_REC_010_Copy_RecreatesRecordsWithCurrentMenuContent()
+    {
+        var s = await SeedAsync();
+        await CreateAsync(new MealRecordInput(Yesterday, "lunch", "お弁当", [new MealRecordItemInput(null, s.Golden.Pork.Id, null, "GRAM", 150m)]));
+        await CreateAsync(new MealRecordInput(Yesterday, "dinner", null,
+            [MenuItem(s.Tonjiru.Id, "SERVING", 1m), new MealRecordItemInput(null, s.Golden.Carrot.Id, s.Golden.CarrotUnitId, "UNIT", 1m)]));
+        // メニューを書き換えると、コピーは現在の内容で再計算される
+        await fixture.Client.PutAsJsonAsync($"/api/menus/{s.Tonjiru.Id}", new MenuInput(
+            "豚汁", null, null, 2400m, 8m, "お椀", [new MenuItemInput(s.Golden.Pork.Id, null, 800m)]));
+
+        var res = await CopyAsync(Yesterday, Day);
+
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+        var result = (await res.Content.ReadFromJsonAsync<MealRecordCopyResultDto>())!;
+        Assert.Empty(result.Skipped);
+        Assert.Equal(["lunch", "dinner"], result.Records.Select(r => r.MealType).ToList());
+        Assert.All(result.Records, r => Assert.Equal(Day, r.EatenOn));
+        Assert.Equal("お弁当", result.Records[0].Memo);
+        var soup = result.Records[1].Items[0];
+        Assert.Equal((1m, 0.125m), (soup.InputValue, soup.PortionRatio));
+        Assert.Equal(20m, Nutrient(soup, "PROT").Amount); // 現在のメニュー（豚こま肉 800g）× 0.125。元の記録の 11.4175 ではない
+        var carrot = result.Records[1].Items[1];
+        Assert.Equal((150m, s.Golden.CarrotUnitId), (carrot.AmountG, (long)(await fixture.WithDbAsync(db => db.MealRecordItems.AsNoTracking().SingleAsync(i => i.Id == carrot.Id))).UnitId!));
+        Assert.Equal(2, (await GetDayAsync(Yesterday)).Records.Count); // コピー元はそのまま
+        Assert.Equal(2, (await GetDayAsync(Day)).Records.Count);
+    }
+
+    [Fact]
+    public async Task Copy_TargetDateHasRecords_Returns409UnlessAllowExisting()
+    {
+        var s = await SeedAsync();
+        await CreateAsync(new MealRecordInput(Yesterday, "dinner", null, [MenuItem(s.Tonjiru.Id, "SERVING", 1m)]));
+        await CreateAsync(new MealRecordInput(Day, "breakfast", null, [MenuItem(s.Tonjiru.Id, "RATIO", 0.1m)]));
+
+        var conflict = await CopyAsync(Yesterday, Day);
+
+        Assert.Equal(HttpStatusCode.Conflict, conflict.StatusCode);
+        Assert.Equal(new ErrorDetail("toDate", "TARGET_DATE_HAS_RECORDS"), (await conflict.Content.ReadFromJsonAsync<ApiErrorResponse>())!.Details.Single());
+        Assert.Single((await GetDayAsync(Day)).Records); // 何も作られない
+
+        var allowed = await CopyAsync(Yesterday, Day, allowExisting: true);
+
+        Assert.Equal(HttpStatusCode.Created, allowed.StatusCode);
+        Assert.Equal(["breakfast", "dinner"], (await GetDayAsync(Day)).Records.Select(r => r.MealType).ToList()); // 既存は残る
+    }
+
+    [Fact]
+    public async Task Copy_SkipsDeletedMenusAndInactiveFoods_AndReportsThem()
+    {
+        var s = await SeedAsync();
+        await CreateAsync(new MealRecordInput(Yesterday, "dinner", null,
+        [
+            MenuItem(s.Tonjiru.Id, "SERVING", 1m),
+            new MealRecordItemInput(null, s.Golden.Pork.Id, null, "GRAM", 100m),
+            new MealRecordItemInput(null, s.Golden.Miso.Id, null, "GRAM", 18m),
+        ]));
+        await CreateAsync(new MealRecordInput(Yesterday, "snack", null, [new MealRecordItemInput(null, s.Golden.Pork.Id, null, "GRAM", 50m)]));
+        await fixture.Client.DeleteAsync($"/api/menus/{s.Tonjiru.Id}");
+        await fixture.WithDbAsync(async db =>
+        {
+            (await db.Foods.SingleAsync(f => f.Id == s.Golden.Pork.Id)).IsActive = false;
+            await db.SaveChangesAsync();
+        });
+
+        var res = await CopyAsync(Yesterday, Day);
+
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+        var result = (await res.Content.ReadFromJsonAsync<MealRecordCopyResultDto>())!;
+        Assert.Equal(
+            [new SkippedItemDto(s.Tonjiru.Id, null, "MENU_DELETED"), new SkippedItemDto(null, s.Golden.Pork.Id, "FOOD_INACTIVE"), new SkippedItemDto(null, s.Golden.Pork.Id, "FOOD_INACTIVE")],
+            result.Skipped);
+        var record = Assert.Single(result.Records); // 全項目がスキップされた間食の記録は作らない
+        Assert.Equal("dinner", record.MealType);
+        Assert.Equal(["みそ"], record.Items.Select(i => i.FoodName).ToList());
+    }
+
+    [Fact]
+    public async Task Copy_InvalidRequest_Returns400()
+    {
+        var s = await SeedAsync();
+        await CreateAsync(new MealRecordInput(Yesterday, "dinner", null, [MenuItem(s.Tonjiru.Id, "SERVING", 1m)]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await CopyAsync(null, Day)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await CopyAsync(Yesterday, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await CopyAsync(Yesterday, Yesterday)).StatusCode); // 同じ日
+        var empty = await CopyAsync(Day.AddDays(-5), Day); // コピー元に記録なし
+        Assert.Equal(HttpStatusCode.BadRequest, empty.StatusCode);
+        Assert.Equal("fromDate", (await empty.Content.ReadFromJsonAsync<ApiErrorResponse>())!.Details.Single().Field);
+        Assert.Empty((await GetDayAsync(Day)).Records);
+    }
 }

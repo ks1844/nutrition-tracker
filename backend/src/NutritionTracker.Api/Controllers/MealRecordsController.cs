@@ -20,6 +20,14 @@ public class MealRecordsController(MealRecordService records) : ControllerBase
         return Created($"/api/meal-records?date={created.EatenOn:yyyy-MM-dd}", created);
     }
 
+    /// <summary>API-21 他の日の記録をコピー</summary>
+    [HttpPost("copy")]
+    public async Task<IActionResult> Copy([FromBody] MealRecordCopyInput input)
+    {
+        var result = await records.CopyAsync(input);
+        return Created($"/api/meal-records?date={input.ToDate:yyyy-MM-dd}", result);
+    }
+
     /// <summary>API-15 食事記録の更新（全項目置換）</summary>
     [HttpPut("{id:long}")]
     public async Task<MealRecordSaveResultDto> Update(long id, [FromBody] MealRecordInput input) => await records.UpdateAsync(id, input);

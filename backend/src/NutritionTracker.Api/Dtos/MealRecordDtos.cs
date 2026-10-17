@@ -44,6 +44,14 @@ public sealed record MealRecordSaveResultDto(
     IReadOnlyList<MealRecordItemDto> Items,
     IReadOnlyList<MealRecordWarningDto> Warnings);
 
+/// <summary>API-21 のリクエスト。<paramref name="AllowExisting"/> が false で <paramref name="ToDate"/> に記録があれば 409。</summary>
+public sealed record MealRecordCopyInput(DateOnly? FromDate, DateOnly? ToDate, bool? AllowExisting);
+
+/// <summary>コピーできなかった項目。<paramref name="Reason"/> は MENU_DELETED / FOOD_INACTIVE。</summary>
+public sealed record SkippedItemDto(long? MenuId, long? FoodId, string Reason);
+
+public sealed record MealRecordCopyResultDto(IReadOnlyList<MealRecordDto> Records, IReadOnlyList<SkippedItemDto> Skipped);
+
 public sealed record RecentMenuDto(long MenuId, string Name, string LastInputMode, decimal LastInputValue, DateOnly LastUsedOn);
 
 public sealed record RecentFoodDto(long FoodId, string Name, string LastInputMode, decimal LastInputValue, long? UnitId, DateOnly LastUsedOn);
