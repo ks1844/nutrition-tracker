@@ -1,0 +1,166 @@
+import { ChangeDetectionStrategy, Component, HostListener, OnInit, computed, inject, output, signal } from '@angular/core';
+import { FoodsApi } from '../api/foods.api';
+import { toApiError } from '../api/api-client';
+import { FoodDetail, FoodSummary } from '../types/api';
+import { NutrientCatalog } from '../services/nutrient-catalog';
+import { fmtAmount, fmtNum } from '../services/format';
+import { Icon } from './icon';
+
+/** CMP-01 食材検索ダイアログ（FR-010 検索 / FR-011 食材詳細）。 */
+@Component({
+  selector: 'app-food-search-dialog',
+  imports: [Icon],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div class="fixed inset-0 z-[55] flex items-end justify-center bg-indigo-950/25 backdrop-blur-sm sm:items-center sm:p-4" (click)="closed.emit()">
+      <section class="glass-strong pop-in flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden !rounded-b-none sm:!rounded-b-3xl"
+               role="dialog" aria-modal="true" aria-labelledby="fsd-title" (click)="$event.stopPropagation()">
+        <header class="flex items-center justify-between gap-2 px-4 pt-4 pb-2">
+          <h2 id="fsd-title" class="h-sub m-0">食材を探す</h2>
+          <button type="button" class="btn btn-sm !w-10 !p-0" (click)="closed.emit()" aria-label="閉じる"><app-icon name="x" /></button>
+        </header>
+        <div class="px-4 pb-2">
+          <label class="field-label" for="fsd-q">かな・カナ・漢字・別名で検索</label>
+          <div class="relative">
+            <app-icon name="search" [size]="18" class="muted pointer-events-none absolute top-1/2 left-3 -translate-y-1/2" />
+            <input id="fsd-q" class="field !pl-10" type="search" autocomplete="off" placeholder="例：にんじん／ニンジン／人参"
+                   [value]="q()" (input)="onInput($any($event.target).value)" />
+          </div>
+        </div>
+        <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4" aria-live="polite">
+          @if (error()) {
+            <p class="field-error">{{ error() }}</p>
+          }
+          @if (!q().trim()) {
+            <p class="muted my-3 text-[0.85rem] font-semibold">よく使う食材：</p>
+            <div class="flex flex-wrap gap-2">
+              @for (s of samples; track s) { <button type="button" class="chip" (click)="onInput(s)">{{ s }}</button> }
+            </div>
+          } @else if (loading()) {
+            <p class="muted my-4 text-[0.9rem] font-bold">検索中…</p>
+          } @else if (searched() && results().length === 0) {
+            <p class="my-4 text-[0.9rem] font-bold">「{{ q() }}」に一致する食材がありません。別の表記でお試しください。</p>
+          } @else {
+            <ul class="m-0 flex list-none flex-col gap-2 p-0">
+              @for (f of results(); track f.id) {
+                <li class="glass-inset overflow-hidden">
+                  <div class="flex items-center gap-2 px-3 py-2.5">
+                    <button type="button" class="min-w-0 flex-1 text-left" (click)="toggle(f)" [attr.aria-expanded]="expandedId() === f.id">
+                      <div class="truncate text-[0.95rem] font-extrabold">{{ f.name }}</div>
+                      <div class="muted text-[0.75rem] font-bold">{{ f.foodGroup }}・廃棄率 {{ f.refuseRatePct }}%@if (f.units.length) {・{{ unitsText(f) }}}</div>
+                    </button>
+                    <button type="button" class="btn btn-sm btn-primary" (click)="picked.emit(f)">選ぶ</button>
+                  </div>
+                  @if (expandedId() === f.id) {
+                    <div class="border-t border-white/70 bg-white/35 px-3 py-3 text-[0.8rem]">
+                      @if (detail(); as d) {
+                        <p class="m-0 mb-2 font-bold">100g あたり（可食部）／出典：{{ d.sourceVersion }}</p>
+                        <dl class="m-0 grid grid-cols-2 gap-x-3 gap-y-1">
+                          @for (row of rows(); track row.code) {
+                            <div class="flex justify-between gap-2 border-b border-white/60 py-0.5">
+                              <dt class="muted font-bold">{{ row.name }}</dt>
+                              <dd class="tabnum m-0 font-extrabold">{{ row.text }}</dd>
+                            </div>
+                          }
+                        </dl>
+                        @if (d.aliases.length) { <p class="muted m-0 mt-2 font-bold">別名：{{ d.aliases.join('、') }}</p> }
+                      } @else {
+                        <p class="muted m-0 font-bold">読み込み中…</p>
+                      }
+                    </div>
+                  }
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      </section>
+    </div>
+  `,
+})
+export class FoodSearchDialog implements OnInit {
+  readonly picked = output<FoodSummary>();
+  readonly closed = output<void>();
+
+  private readonly api = inject(FoodsApi);
+  private readonly catalog = inject(NutrientCatalog);
+  protected readonly samples = ['にんじん', '豚肉', 'ご飯', '卵', '味噌', 'ブロッコリー'];
+  protected readonly q = signal('');
+  protected readonly results = signal<FoodSummary[]>([]);
+  protected readonly loading = signal(false);
+  protected readonly searched = signal(false);
+  protected readonly error = signal('');
+  protected readonly expandedId = signal<number | null>(null);
+  protected readonly detail = signal<FoodDetail | null>(null);
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  protected readonly rows = computed(() => {
+    const d = this.detail();
+    if (!d) return [];
+    return d.nutrients.map((n) => {
+      const def = this.catalog.def(n.code);
+      const unit = def?.unit ?? '';
+      const text =
+        n.per100g === null ? '未測定'
+        : n.isTrace ? '微量(Tr)'
+        : `${fmtAmount(n.per100g, unit)}${unit}`;
+      return { code: n.code, name: def?.nameJa ?? n.code, text };
+    });
+  });
+
+  ngOnInit(): void {
+    void this.catalog.load();
+  }
+
+  @HostListener('document:keydown.escape')
+  protected onEscape(): void {
+    this.closed.emit();
+  }
+
+  protected unitsText(f: FoodSummary): string {
+    return f.units.map((u) => `${u.unitName}=${fmtNum(u.gramsPerUnit, 0)}g`).join('／');
+  }
+
+  protected onInput(value: string): void {
+    this.q.set(value);
+    clearTimeout(this.timer);
+    this.expandedId.set(null);
+    if (!value.trim()) {
+      this.results.set([]);
+      this.searched.set(false);
+      return;
+    }
+    this.loading.set(true);
+    this.timer = setTimeout(() => void this.run(value), 250);
+  }
+
+  private async run(value: string): Promise<void> {
+    try {
+      const r = await this.api.search(value.trim());
+      if (value === this.q()) {
+        this.results.set(r.items);
+        this.searched.set(true);
+        this.error.set('');
+      }
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  protected async toggle(f: FoodSummary): Promise<void> {
+    if (this.expandedId() === f.id) {
+      this.expandedId.set(null);
+      return;
+    }
+    this.expandedId.set(f.id);
+    this.detail.set(null);
+    try {
+      const d = await this.api.get(f.id);
+      if (this.expandedId() === f.id) this.detail.set(d);
+    } catch (e) {
+      this.error.set(toApiError(e).message);
+    }
+  }
+}

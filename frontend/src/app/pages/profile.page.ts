@@ -1,0 +1,218 @@
+// SCR-01 プロフィール設定（FR-001, FR-002）
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
+import { Router } from '@angular/router';
+import { ProfileApi } from '../api/profile.api';
+import { MockAdminApi } from '../api/mock.api';
+import { fieldErrors, toApiError } from '../api/api-client';
+import { Goal, ProfileInput, Sex } from '../types/api';
+import { ProfileService } from '../services/profile.service';
+import { UiService } from '../services/ui.service';
+import { ACTIVITY_LABEL, GOAL_LABEL, fmtNum } from '../services/format';
+import { todayString } from '../services/date-util';
+import { PageHeader } from '../components/page-header';
+import { Disclaimer } from '../components/disclaimer';
+import { Icon } from '../components/icon';
+import { environment } from '../../environments/environment';
+
+@Component({
+  selector: 'app-profile-page',
+  imports: [PageHeader, Disclaimer, Icon],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <app-page-header title="プロフィール" [subtitle]="first() ? 'はじめに身体情報を入力しましょう' : '目標の計算に使います'" />
+
+    @if (first()) {
+      <div class="glass pop-in flex gap-3 p-4">
+        <app-icon name="sparkle" [size]="22" class="mt-0.5 shrink-0 text-violet-600" />
+        <p class="m-0 text-[0.9rem] font-bold">ようこそ。性別・生年月日・身長・体重・活動レベル・目的を入力すると、1日の目標が自動で計算されます。</p>
+      </div>
+    }
+
+    <form class="glass flex flex-col gap-4 p-4" (submit)="save($event)" novalidate>
+      <fieldset class="m-0 border-0 p-0">
+        <legend class="field-label">性別</legend>
+        <div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="性別">
+          @for (s of sexes; track s.v) {
+            <button type="button" class="chip justify-center" role="radio" [attr.aria-pressed]="form().sex === s.v" [attr.aria-checked]="form().sex === s.v"
+                    (click)="patch({ sex: s.v })">{{ s.l }}</button>
+          }
+        </div>
+        @if (errs()['sex']) { <p class="field-error">{{ errs()['sex'] }}</p> }
+      </fieldset>
+
+      <div>
+        <label class="field-label" for="pf-birth">生年月日</label>
+        <input id="pf-birth" class="field" type="date" [max]="today" [value]="form().birthDate" [attr.aria-invalid]="!!errs()['birthDate']"
+               (input)="patch({ birthDate: $any($event.target).value })" />
+        @if (errs()['birthDate']) { <p class="field-error">{{ errs()['birthDate'] }}</p> }
+      </div>
+
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="field-label" for="pf-h">身長 (cm)</label>
+          <input id="pf-h" class="field tabnum" type="number" inputmode="decimal" step="0.1" [value]="form().heightCm || ''" [attr.aria-invalid]="!!errs()['heightCm']"
+                 (input)="patch({ heightCm: num($event) })" />
+          @if (errs()['heightCm']) { <p class="field-error">{{ errs()['heightCm'] }}</p> }
+        </div>
+        <div>
+          <label class="field-label" for="pf-w">体重 (kg)</label>
+          <input id="pf-w" class="field tabnum" type="number" inputmode="decimal" step="0.1" [value]="form().weightKg || ''" [attr.aria-invalid]="!!errs()['weightKg']"
+                 (input)="patch({ weightKg: num($event) })" />
+          @if (errs()['weightKg']) { <p class="field-error">{{ errs()['weightKg'] }}</p> }
+        </div>
+      </div>
+
+      <div>
+        <label class="field-label" for="pf-act">活動レベル</label>
+        <select id="pf-act" class="field" [value]="form().activityLevel" (change)="patch({ activityLevel: +$any($event.target).value })">
+          @for (lv of levels; track lv) { <option [value]="lv" [selected]="form().activityLevel === lv">{{ activity[lv] }}</option> }
+        </select>
+        @if (errs()['activityLevel']) { <p class="field-error">{{ errs()['activityLevel'] }}</p> }
+      </div>
+
+      <fieldset class="m-0 border-0 p-0">
+        <legend class="field-label">目的</legend>
+        <div class="grid grid-cols-3 gap-2" role="radiogroup" aria-label="目的">
+          @for (g of goals; track g) {
+            <button type="button" class="chip justify-center !px-2" role="radio" [attr.aria-pressed]="form().goal === g" [attr.aria-checked]="form().goal === g"
+                    (click)="patch({ goal: g })">{{ goalLabel[g] }}</button>
+          }
+        </div>
+        @if (errs()['goal']) { <p class="field-error">{{ errs()['goal'] }}</p> }
+      </fieldset>
+
+      <section class="glass-inset flex flex-col gap-2 p-3.5" aria-label="自動算出された目標">
+        <h2 class="h-sub m-0 flex items-center gap-1.5"><app-icon name="sparkle" [size]="16" />自動算出された目標</h2>
+        <dl class="m-0 grid grid-cols-2 gap-2">
+          <div><dt class="muted text-[0.75rem] font-bold">エネルギー</dt><dd class="tabnum m-0 text-[1.2rem] font-extrabold">{{ energyText() }}<span class="muted ml-1 text-[0.75rem]">kcal</span></dd></div>
+          <div><dt class="muted text-[0.75rem] font-bold">タンパク質</dt><dd class="tabnum m-0 text-[1.2rem] font-extrabold">{{ proteinText() }}<span class="muted ml-1 text-[0.75rem]">g</span></dd></div>
+        </dl>
+        <label class="flex items-center gap-2 text-[0.85rem] font-bold">
+          <input type="checkbox" class="h-5 w-5 accent-violet-600" [checked]="override()" (change)="toggleOverride($any($event.target).checked)" />
+          エネルギー目標を手動で上書きする
+        </label>
+        @if (override()) {
+          <div>
+            <label class="field-label" for="pf-e">エネルギー目標 (kcal)</label>
+            <input id="pf-e" class="field tabnum" type="number" inputmode="numeric" step="1" [value]="form().energyTargetKcal ?? ''" [attr.aria-invalid]="!!errs()['energyTargetKcal']"
+                   (input)="patch({ energyTargetKcal: num($event) })" />
+            @if (errs()['energyTargetKcal']) { <p class="field-error">{{ errs()['energyTargetKcal'] }}</p> }
+          </div>
+        }
+        <p class="muted m-0 text-[0.72rem] font-semibold">※エネルギーはMifflin-St Jeor式×活動係数、タンパク質は体重×係数（暫定）で計算しています。</p>
+      </section>
+
+      <button type="submit" class="btn btn-primary w-full" [disabled]="saving()">{{ saving() ? '保存中…' : '保存する' }}</button>
+    </form>
+
+    @if (mock) {
+      <section class="glass flex flex-col gap-2 p-4" aria-label="プロトタイプ用の操作">
+        <h2 class="h-sub m-0">プロトタイプ用の操作</h2>
+        <p class="muted m-0 text-[0.8rem] font-semibold">Mock データを初期状態に戻します（本番にはありません）。</p>
+        <div class="flex flex-wrap gap-2">
+          <button type="button" class="btn btn-sm" (click)="resetMock(true)"><app-icon name="refresh" [size]="15" />サンプルデータに戻す</button>
+          <button type="button" class="btn btn-sm" (click)="resetMock(false)"><app-icon name="refresh" [size]="15" />プロフィール未登録にする</button>
+        </div>
+      </section>
+    }
+    <app-disclaimer />
+  `,
+})
+export class ProfilePage implements OnInit {
+  readonly first = input(false, { transform: (v: unknown) => v === '1' || v === 1 || v === true });
+
+  private readonly api = inject(ProfileApi);
+  private readonly mockApi = inject(MockAdminApi);
+  private readonly svc = inject(ProfileService);
+  private readonly ui = inject(UiService);
+  private readonly router = inject(Router);
+
+  protected readonly mock = environment.useMockApi;
+  protected readonly today = todayString();
+  protected readonly sexes: { v: Sex; l: string }[] = [{ v: 'female', l: '女性' }, { v: 'male', l: '男性' }];
+  protected readonly goals: Goal[] = ['skin', 'muscle', 'both'];
+  protected readonly goalLabel = GOAL_LABEL;
+  protected readonly levels = [1, 2, 3, 4];
+  protected readonly activity = ACTIVITY_LABEL;
+
+  protected readonly form = signal<ProfileInput>({
+    sex: 'female', birthDate: '', heightCm: 0, weightKg: 0, activityLevel: 2, goal: 'both', energyTargetKcal: null,
+  });
+  protected readonly override = signal(false);
+  protected readonly errs = signal<Record<string, string>>({});
+  protected readonly saving = signal(false);
+
+  /** 入力途中でも目標を即時再計算して見せる（式は docs/06.スコアリング仕様.md §2。確定値は保存後にサーバーが返す）。 */
+  protected readonly energyText = computed(() => {
+    const f = this.form();
+    if (this.override() && f.energyTargetKcal) return f.energyTargetKcal.toLocaleString('ja-JP');
+    if (!f.birthDate || !f.heightCm || !f.weightKg) return '—';
+    const b = new Date(f.birthDate);
+    const t = new Date();
+    let age = t.getFullYear() - b.getFullYear();
+    if (t.getMonth() < b.getMonth() || (t.getMonth() === b.getMonth() && t.getDate() < b.getDate())) age -= 1;
+    const bmr = 10 * f.weightKg + 6.25 * f.heightCm - 5 * age + (f.sex === 'male' ? 5 : -161);
+    const factor = [1.2, 1.375, 1.55, 1.725][f.activityLevel - 1] ?? 1.2;
+    return Math.round(bmr * factor).toLocaleString('ja-JP');
+  });
+  protected readonly proteinText = computed(() => {
+    const f = this.form();
+    if (!f.weightKg) return '—';
+    return fmtNum(f.weightKg * ({ skin: 1.0, both: 1.4, muscle: 1.6 }[f.goal]), 1);
+  });
+
+  async ngOnInit(): Promise<void> {
+    try {
+      if (await this.svc.ensureLoaded(true)) {
+        const p = this.svc.profile();
+        if (p) {
+          const { targets: _t, ...input } = p;
+          this.form.set({ ...input });
+          this.override.set(p.energyTargetKcal !== null);
+        }
+      }
+    } catch (e) {
+      this.ui.error(toApiError(e).message);
+    }
+  }
+
+  protected patch(p: Partial<ProfileInput>): void {
+    this.form.update((f) => ({ ...f, ...p }));
+  }
+
+  protected num(ev: Event): number {
+    const v = (ev.target as HTMLInputElement).value;
+    return v === '' ? 0 : Number(v);
+  }
+
+  protected toggleOverride(on: boolean): void {
+    this.override.set(on);
+    if (!on) this.patch({ energyTargetKcal: null });
+  }
+
+  protected async save(ev: Event): Promise<void> {
+    ev.preventDefault();
+    this.saving.set(true);
+    this.errs.set({});
+    try {
+      const input = { ...this.form(), energyTargetKcal: this.override() ? this.form().energyTargetKcal : null };
+      const saved = await this.api.save(input);
+      this.svc.set(saved);
+      this.ui.toast('プロフィールを保存しました');
+      await this.router.navigateByUrl('/');
+    } catch (e) {
+      this.errs.set(fieldErrors(e));
+      this.ui.error(toApiError(e).message || '保存できませんでした');
+    } finally {
+      this.saving.set(false);
+    }
+  }
+
+  protected async resetMock(withProfile: boolean): Promise<void> {
+    await this.mockApi.reset(withProfile);
+    this.svc.set(null);
+    this.svc.loaded.set(false);
+    this.ui.toast(withProfile ? 'サンプルデータに戻しました' : 'プロフィール未登録にしました', 'info');
+    await this.router.navigateByUrl(withProfile ? '/' : '/profile?first=1');
+  }
+}

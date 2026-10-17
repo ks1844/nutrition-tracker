@@ -1,0 +1,21 @@
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { Icon, IconName } from './icon';
+
+@Component({
+  selector: 'app-empty-state',
+  imports: [Icon],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <div class="glass flex flex-col items-center gap-2 px-6 py-8 text-center">
+      <span class="grid h-14 w-14 place-items-center rounded-full bg-white/70 shadow-inner"><app-icon [name]="icon()" [size]="26" class="muted" /></span>
+      <p class="m-0 text-[1rem] font-extrabold">{{ title() }}</p>
+      @if (text(); as t) { <p class="muted m-0 text-[0.85rem] font-semibold">{{ t }}</p> }
+      <div class="mt-1 flex flex-wrap justify-center gap-2"><ng-content /></div>
+    </div>
+  `,
+})
+export class EmptyState {
+  readonly icon = input<IconName>('info');
+  readonly title = input.required<string>();
+  readonly text = input<string | null>(null);
+}

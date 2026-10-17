@@ -55,6 +55,19 @@
 
 競合時は別ポートで逃げず、占有プロセスを止めて固定ポートで起動する。
 
+## フロントエンド（Angular。`frontend/`）
+
+```bash
+cd frontend
+npm install        # 初回のみ（Node は LTS の 24 系）
+npm start          # http://localhost:4200 （`/api` は proxy.conf.json で localhost:8080 へ）
+npm test           # 単体テスト（Vitest）。`npx ng test --watch=false` で 1 回だけ実行
+npm run build      # 本番ビルド（dist/）
+```
+
+- **現在は Mock API で動く**（`src/environments/environment.ts` の `useMockApi: true`）。データ・栄養値・目標値は**ダミー**で、公式の値ではない。結線時に `src/app/api/mock/` と `useMockApi` を削除する → [docs/13.開発手順.md](docs/13.開発手順.md)
+- デザインはグラスモーフィズム（トークンとクラスは `src/styles.css`）。状態は色だけで表現しない（アイコン・文言・数値を併記）。
+
 ## AWS の操作
 
 - AWS のリソースは**すべて Terraform**で作る（コンソールで手作業しない）。`terraform plan` の差分を示し、`apply` / `destroy` は利用者が確認して実行する。
