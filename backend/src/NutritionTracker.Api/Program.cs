@@ -4,11 +4,14 @@ using NutritionTracker.Api.Config;
 using NutritionTracker.Api.Data;
 using NutritionTracker.Api.Dtos;
 using NutritionTracker.Api.Exceptions;
+using NutritionTracker.Api.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(DatabaseConnection.Build(builder.Configuration), new MySqlServerVersion(new Version(8, 4, 0))));
+
+builder.Services.AddScoped<NutrientService>();
 
 builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(options =>
