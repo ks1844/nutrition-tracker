@@ -76,3 +76,24 @@ public sealed record WeeklyDashboardDto(
     IReadOnlyList<SeriesPointDto> Series,
     IReadOnlyList<RemainingMenuDto> RemainingMenus,
     IReadOnlyList<DashboardNoticeDto> Notices);
+
+/// <summary>メニューの食材内訳（参考値）。メニューの<b>現在の構成</b>から按分する。</summary>
+public sealed record ContributionChildDto(long FoodId, string Name, decimal Amount);
+
+/// <summary>寄与した記録項目（メニューまたは単品食材）。<paramref name="Type"/> は MENU / FOOD。</summary>
+public sealed record ContributionItemDto(
+    string Type,
+    long Id,
+    string Name,
+    decimal Amount,
+    decimal SharePct,
+    IReadOnlyList<ContributionChildDto> Children);
+
+/// <summary>API-19 のレスポンス。<paramref name="Items"/> は寄与の大きい順。</summary>
+public sealed record ContributionsDto(
+    string NutrientCode,
+    DateOnly From,
+    DateOnly To,
+    decimal TotalAmount,
+    bool IsIncomplete,
+    IReadOnlyList<ContributionItemDto> Items);

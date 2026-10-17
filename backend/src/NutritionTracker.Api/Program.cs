@@ -23,6 +23,7 @@ builder.Services.AddScoped<MealRecordService>();
 builder.Services.AddScoped<RecentItemService>();
 builder.Services.AddScoped<TargetService>();
 builder.Services.AddScoped<DashboardService>();
+builder.Services.AddScoped<ContributionService>();
 
 builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(options =>
