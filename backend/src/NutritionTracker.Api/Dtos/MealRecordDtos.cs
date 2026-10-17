@@ -43,3 +43,10 @@ public sealed record MealRecordSaveResultDto(
     string? Memo,
     IReadOnlyList<MealRecordItemDto> Items,
     IReadOnlyList<MealRecordWarningDto> Warnings);
+
+public sealed record RecentMenuDto(long MenuId, string Name, string LastInputMode, decimal LastInputValue, DateOnly LastUsedOn);
+
+public sealed record RecentFoodDto(long FoodId, string Name, string LastInputMode, decimal LastInputValue, long? UnitId, DateOnly LastUsedOn);
+
+/// <summary>API-20 のレスポンス。直近の使用順で重複を除いた、メニューと食材。</summary>
+public sealed record RecentItemsDto(IReadOnlyList<RecentMenuDto> Menus, IReadOnlyList<RecentFoodDto> Foods);
