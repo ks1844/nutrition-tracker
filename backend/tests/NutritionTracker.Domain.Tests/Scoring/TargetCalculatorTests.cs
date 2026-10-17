@@ -39,7 +39,7 @@ public class TargetCalculatorTests
     [Theory]
     [InlineData("1996-04-01", "2026-03-31", 29)]
     [InlineData("1996-04-01", "2026-04-01", 30)]
-    [InlineData("2000-02-29", "2026-02-28", 25)]
+    [InlineData("2000-02-29", "2026-02-28", 26)] // 閏日生まれは、平年は 2/28 に加齢（DateOnly.AddYears の仕様に合わせる）
     public void Age_IsFullYearsOnTheGivenDay(string birth, string on, int expected)
     {
         Assert.Equal(expected, TargetCalculator.AgeOn(DateOnly.Parse(birth), DateOnly.Parse(on)));
