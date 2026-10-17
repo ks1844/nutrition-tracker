@@ -25,6 +25,18 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog)
         return await ToDetailAsync(menu.Id);
     }
 
+    /// <summary>API-08 メニュー詳細。論理削除済みは 404。</summary>
+    public async Task<MenuDetailDto> GetAsync(long id)
+    {
+        await RequireActiveAsync(id);
+        return await ToDetailAsync(id);
+    }
+
+    /// <summary>有効（論理削除されていない）メニューを返す。無ければ 404。</summary>
+    private async Task<Menu> RequireActiveAsync(long id) =>
+        await db.Menus.FirstOrDefaultAsync(m => m.Id == id && m.UserId == User.FixedUserId && m.DeletedAt == null)
+        ?? throw new NotFoundException();
+
     // ---- 入力の検証と反映 ----
 
     /// <summary>入力を検証し、使う食材（栄養素つき）を返す。違反は 400（項目別）、無効な食材は 409。</summary>

@@ -155,4 +155,77 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal("CONFLICT", err.Code);
         Assert.Equal(new ErrorDetail("items[1].foodId", "FOOD_INACTIVE"), err.Details.Single());
     }
+
+    // ---- API-08 詳細 ----
+    [Fact]
+    public async Task Get_ReturnsSameContentAsCreated()
+    {
+        var g = await SeedAsync();
+        var created = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+
+        var got = (await fixture.Client.GetFromJsonAsync<MenuDetailDto>($"/api/menus/{created.Id}"))!;
+
+        Assert.Equal(created.Items, got.Items);
+        Assert.Equal(created.Nutrients, got.Nutrients);
+        Assert.Equal(created.PerServing, got.PerServing);
+        Assert.Equal(("豚汁", new DateOnly(2026, 10, 14), 2400.0m, 8.0m), (got.Name, got.CookedOn, got.CookedTotalWeightG, got.Servings));
+    }
+
+    [Fact]
+    public async Task Get_UnknownOrDeletedMenu_Returns404()
+    {
+        var g = await SeedAsync();
+        var created = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        await fixture.WithDbAsync(async db =>
+        {
+            var menu = await db.Menus.SingleAsync(m => m.Id == created.Id);
+            menu.DeletedAt = DateTime.UtcNow; // 論理削除
+            await db.SaveChangesAsync();
+        });
+
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.GetAsync($"/api/menus/{created.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.GetAsync("/api/menus/999999")).StatusCode);
+    }
+
+    /// <summary>メニューに対する食事記録（食べた割合）を直接 DB に作る。記録 API ができる前でも残量を確認できる。</summary>
+    private async Task AddRecordedPortionAsync(long menuId, decimal ratio)
+    {
+        await fixture.WithDbAsync(async db =>
+        {
+            var record = new NutritionTracker.Api.Entities.MealRecord { UserId = 1, EatenOn = ApiFixture.Today, MealType = "dinner" };
+            record.Items.Add(new NutritionTracker.Api.Entities.MealRecordItem
+            {
+                MenuId = menuId, InputMode = "RATIO", InputValue = ratio, PortionRatio = ratio,
+            });
+            db.MealRecords.Add(record);
+            await db.SaveChangesAsync();
+        });
+    }
+
+    [Fact]
+    public async Task AC_MENU_008_Remaining_IsOneMinusRecordedRatios()
+    {
+        var g = await SeedAsync();
+        var created = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        await AddRecordedPortionAsync(created.Id, 0.1875m); // 1.5 杯
+        await AddRecordedPortionAsync(created.Id, 0.125m); // 1 杯
+
+        var got = (await fixture.Client.GetFromJsonAsync<MenuDetailDto>($"/api/menus/{created.Id}"))!;
+
+        Assert.Equal(new RemainingDto(0.6875m, 5.5m, false), got.Remaining); // AC-CALC-013
+    }
+
+    [Fact]
+    public async Task Remaining_IsOver_WhenRecordedMoreThanWhole()
+    {
+        var g = await SeedAsync();
+        var created = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        await AddRecordedPortionAsync(created.Id, 0.75m);
+        await AddRecordedPortionAsync(created.Id, 0.5m);
+
+        var got = (await fixture.Client.GetFromJsonAsync<MenuDetailDto>($"/api/menus/{created.Id}"))!;
+
+        Assert.True(got.Remaining.IsOver);
+        Assert.Equal(-0.25m, got.Remaining.Ratio);
+    }
 }

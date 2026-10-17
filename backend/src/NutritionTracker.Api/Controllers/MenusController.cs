@@ -15,4 +15,8 @@ public class MenusController(MenuService menus) : ControllerBase
         var created = await menus.CreateAsync(input);
         return Created($"/api/menus/{created.Id}", created);
     }
+
+    /// <summary>API-08 メニュー詳細</summary>
+    [HttpGet("{id:long}")]
+    public async Task<MenuDetailDto> Get(long id) => await menus.GetAsync(id);
 }
