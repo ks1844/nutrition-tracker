@@ -1,0 +1,100 @@
+<svg
+  [attr.viewBox]="'0 0 ' + w + ' ' + h"
+  class="w-full"
+  role="img"
+  aria-label="直近7日のスコア推移の折れ線グラフ"
+>
+  @for (g of [0, 50, 100]; track g) {
+    <line
+      [attr.x1]="pad.l"
+      [attr.x2]="w - pad.r"
+      [attr.y1]="y(g)"
+      [attr.y2]="y(g)"
+      stroke="rgba(100,100,160,0.18)"
+    />
+    <text [attr.x]="pad.l - 6" [attr.y]="y(g) + 4" text-anchor="end" font-size="10" fill="#4f5a82">
+      {{ g }}
+    </text>
+  }
+  @for (s of lines(); track s.key) {
+    @for (seg of s.segments; track $index) {
+      <polyline
+        [attr.points]="seg"
+        fill="none"
+        [attr.stroke]="s.color"
+        stroke-width="2.4"
+        stroke-linejoin="round"
+        [attr.stroke-dasharray]="s.dash"
+      />
+    }
+    @for (p of s.points; track p.date) {
+      @switch (s.marker) {
+        @case ('circle') {
+          <circle
+            [attr.cx]="p.x"
+            [attr.cy]="p.y"
+            r="4"
+            [attr.fill]="s.color"
+            stroke="#fff"
+            stroke-width="1.5"
+          />
+        }
+        @case ('square') {
+          <rect
+            [attr.x]="p.x - 4"
+            [attr.y]="p.y - 4"
+            width="8"
+            height="8"
+            [attr.fill]="s.color"
+            stroke="#fff"
+            stroke-width="1.5"
+          />
+        }
+        @default {
+          <polygon
+            [attr.points]="tri(p.x, p.y)"
+            [attr.fill]="s.color"
+            stroke="#fff"
+            stroke-width="1.5"
+          />
+        }
+      }
+    }
+  }
+  @for (t of ticks(); track t.x) {
+    <text [attr.x]="t.x" [attr.y]="h - 8" text-anchor="middle" font-size="10" fill="#4f5a82">
+      {{ t.label }}
+    </text>
+  }
+</svg>
+<ul
+  class="m-0 mt-1 flex list-none flex-wrap justify-center gap-x-4 gap-y-1 p-0 text-[0.78rem] font-bold"
+>
+  @for (s of lines(); track s.key) {
+    <li class="flex items-center gap-1.5">
+      <svg width="30" height="12" aria-hidden="true">
+        <line
+          x1="1"
+          x2="29"
+          y1="6"
+          y2="6"
+          [attr.stroke]="s.color"
+          stroke-width="2.4"
+          [attr.stroke-dasharray]="s.dash"
+        />
+        @switch (s.marker) {
+          @case ('circle') {
+            <circle cx="15" cy="6" r="4" [attr.fill]="s.color" />
+          }
+          @case ('square') {
+            <rect x="11" y="2" width="8" height="8" [attr.fill]="s.color" />
+          }
+          @default {
+            <polygon points="15,1.5 19.5,10 10.5,10" [attr.fill]="s.color" />
+          }
+        }
+      </svg>
+      {{ s.label }}
+    </li>
+  }
+</ul>

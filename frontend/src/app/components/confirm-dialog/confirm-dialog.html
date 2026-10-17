@@ -1,0 +1,33 @@
+@if (ui.confirmRequest(); as c) {
+  <div
+    class="fixed inset-0 z-[70] grid place-items-center bg-indigo-950/25 p-5 backdrop-blur-sm"
+    (click)="c.resolve(false)"
+    (keydown.escape)="c.resolve(false)"
+  >
+    <div
+      class="glass-strong pop-in w-full max-w-sm p-5"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="cf-title"
+      (click)="$event.stopPropagation()"
+    >
+      <h2 id="cf-title" class="h-sub m-0 flex items-center gap-2">
+        <app-icon [name]="c.danger ? 'alert' : 'info'" [size]="18" />
+        {{ c.title }}
+      </h2>
+      <p class="muted mt-2 mb-4 text-[0.9rem] font-semibold">{{ c.message }}</p>
+      <div class="flex justify-end gap-2">
+        <button type="button" class="btn" (click)="c.resolve(false)">キャンセル</button>
+        <button
+          type="button"
+          class="btn"
+          [class]="c.danger ? 'btn-danger' : 'btn-primary'"
+          (click)="c.resolve(true)"
+          autofocus
+        >
+          {{ c.okLabel }}
+        </button>
+      </div>
+    </div>
+  </div>
+}

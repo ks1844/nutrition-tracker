@@ -1,0 +1,208 @@
+<app-page-header title="分析" subtitle="スコアと栄養のバランス" />
+
+<div class="glass grid grid-cols-2 gap-1.5 p-1.5" role="group" aria-label="表示期間">
+  <button
+    type="button"
+    class="chip justify-center"
+    [attr.aria-pressed]="mode() === 'daily'"
+    (click)="setMode('daily')"
+  >
+    今日
+  </button>
+  <button
+    type="button"
+    class="chip justify-center"
+    [attr.aria-pressed]="mode() === 'weekly'"
+    (click)="setMode('weekly')"
+  >
+    直近7日平均
+  </button>
+</div>
+<app-date-nav [date]="date()" (changed)="setDate($event)" />
+@if (mode() === 'weekly') {
+  <p class="muted m-0 px-2 text-[0.78rem] font-bold">
+    {{ windowLabel() }}（記録のある日だけで平均します）
+  </p>
+}
+
+@if (error()) {
+  <div class="glass flex flex-col items-start gap-2 p-4" role="alert">
+    <p class="m-0 text-[0.9rem] font-bold">{{ error() }}</p>
+    <button type="button" class="btn btn-sm" (click)="load()">再試行</button>
+  </div>
+} @else if (vm(); as v) {
+  @if (!v.hasData) {
+    <app-empty-state
+      icon="chart"
+      title="記録するとここに表示されます"
+      text="食事を記録すると、スコアと栄養のバランスが見られます"
+    >
+      <a routerLink="/record" class="btn btn-primary btn-sm">食事を記録する</a>
+    </app-empty-state>
+  } @else {
+    <!-- 注記 -->
+    @if (v.insufficient) {
+      <div class="glass flex gap-2.5 p-3.5" role="note">
+        <app-icon name="info" [size]="20" class="mt-0.5 shrink-0 text-blue-600" />
+        <p class="m-0 text-[0.85rem] font-bold">
+          データ不足です（記録
+          {{ v.recordDays }}日）。7日平均のスコアは、記録が3日以上そろうと表示されます。
+        </p>
+      </div>
+    }
+
+    <!-- スコア -->
+    <section
+      class="glass pop-in p-4"
+      [attr.aria-label]="mode() === 'daily' ? '今日の進捗' : '7日平均のスコア'"
+    >
+      <h2 class="h-sub m-0 mb-3">
+        {{ mode() === 'daily' ? (isToday() ? '今日の進捗' : 'この日の進捗') : '7日平均のスコア' }}
+      </h2>
+      <div class="grid grid-cols-3 gap-2">
+        <app-score-ring
+          label="美肌"
+          icon="sparkle"
+          gid="d-beauty"
+          from="#f9a8d4"
+          to="#a855f7"
+          [size]="96"
+          [view]="v.scores.beauty"
+        />
+        <app-score-ring
+          label="筋肉"
+          icon="dumbbell"
+          gid="d-muscle"
+          from="#7dd3fc"
+          to="#2563eb"
+          [size]="96"
+          [view]="v.scores.muscle"
+        />
+        <app-score-ring
+          label="基礎"
+          icon="leaf"
+          gid="d-base"
+          from="#86efac"
+          to="#059669"
+          [size]="96"
+          [view]="v.scores.base"
+        />
+      </div>
+      <ul class="muted m-0 mt-3 flex list-none flex-col gap-0.5 p-0 text-[0.72rem] font-semibold">
+        <li>
+          美肌：ビタミンC・E・A・亜鉛 ／ 筋肉：タンパク質・食事ごとの分配・エネルギー ／
+          基礎：食物繊維とミネラル・ビタミン類
+        </li>
+        <li>80以上=良好・60〜79=もう少し・60未満=不足気味（目安です）</li>
+      </ul>
+    </section>
+
+    <!-- エネルギー・PFC -->
+    @if (v.energy) {
+      <section class="glass pop-in p-4" aria-label="エネルギーとPFC" style="animation-delay: 0.05s">
+        <p class="muted m-0 text-[0.78rem] font-bold">
+          {{ mode() === 'daily' ? 'エネルギー' : '1日あたりの平均エネルギー' }}
+        </p>
+        <p class="tabnum m-0 text-[1.8rem] leading-tight font-extrabold">
+          {{ kcal(v.energy.intake) }}
+          <span class="muted ml-1 text-[0.85rem] font-bold">
+            / {{ kcal(v.energy.target) }} kcal
+          </span>
+        </p>
+        <div
+          class="bar-track mt-2"
+          role="progressbar"
+          aria-label="エネルギー達成率"
+          [attr.aria-valuenow]="Math.round((v.energy.intake / v.energy.target) * 100)"
+          aria-valuemin="0"
+          aria-valuemax="100"
+        >
+          <div
+            class="bar-fill"
+            [class]="energyFill(v.energy.intake / v.energy.target)"
+            [style.width.%]="Math.min((v.energy.intake / v.energy.target) * 100, 100)"
+          ></div>
+        </div>
+        <div class="mt-3"><app-pfc-bar [pfc]="v.pfc" /></div>
+        <p class="muted m-0 mt-2 text-[0.72rem] font-semibold">
+          PFC比：P・Cは4kcal/g、Fは9kcal/gで計算した比率です（情報表示。スコアには含みません）。
+        </p>
+      </section>
+    }
+
+    <!-- 栄養バー -->
+    <section
+      class="glass pop-in p-4"
+      aria-label="栄養素ごとの達成状況"
+      style="animation-delay: 0.1s"
+    >
+      <div class="mb-2 flex items-center justify-between gap-2">
+        <h2 class="h-sub m-0">栄養素ごとの達成状況</h2>
+        <a routerLink="/trend" class="btn btn-sm">
+          <app-icon name="trend-up" [size]="15" />
+          7日推移
+        </a>
+      </div>
+      <div class="mb-2.5 flex flex-wrap gap-1.5 text-[0.72rem] font-extrabold" aria-label="凡例">
+        <span class="badge st-deficient">
+          <app-icon name="arrow-down" [size]="12" />
+          不足（青）
+        </span>
+        <span class="badge st-achieved">
+          <app-icon name="check" [size]="12" />
+          達成（緑）
+        </span>
+        <span class="badge st-over">
+          <app-icon name="alert" [size]="12" />
+          上限超過（橙）
+        </span>
+      </div>
+      <div class="flex flex-col gap-2">
+        @for (n of sorted(); track n.code) {
+          <app-nutrient-bar [n]="n" />
+        }
+      </div>
+      @if (reference().length) {
+        <h3 class="h-sub m-0 mt-4 mb-2">参考値（スコアには含みません）</h3>
+        <div class="flex flex-col gap-2">
+          @for (n of reference(); track n.code) {
+            <app-nutrient-bar [n]="n" />
+          }
+        </div>
+        <p class="muted m-0 mt-1.5 text-[0.72rem] font-semibold">
+          アスタキサンチンは成分表に無いため、文献値の参考表示（ダミー）です。
+        </p>
+      }
+    </section>
+
+    <!-- 注記（未測定・目標） -->
+    @for (n of v.notices; track n.code) {
+      @if (n.code === 'INCOMPLETE_NUTRIENT') {
+        <p class="muted m-0 flex gap-2 px-2 text-[0.78rem] font-semibold">
+          <app-icon name="info" [size]="15" class="mt-0.5 shrink-0" />
+          ※ 未測定の食材を含むため、実際より少なく表示される栄養素があります（{{
+            incNames(n.nutrientCodes)
+          }}）。
+        </p>
+      }
+    }
+
+    <!-- 作り置き残量 -->
+    @if (v.remaining.length) {
+      <section class="glass pop-in p-4" aria-label="作り置きの残り" style="animation-delay: 0.15s">
+        <h2 class="h-sub m-0 mb-2">作り置きの残り</h2>
+        <ul class="m-0 flex list-none flex-col gap-2 p-0">
+          @for (m of v.remaining; track m.menuId) {
+            <li class="glass-inset flex items-center justify-between gap-2 px-3.5 py-2.5">
+              <span class="min-w-0 truncate text-[0.92rem] font-extrabold">{{ m.name }}</span>
+              <span class="tabnum text-[0.88rem] font-extrabold">
+                残り {{ fmtNum(m.remainingServings, 1) }}杯
+              </span>
+            </li>
+          }
+        </ul>
+      </section>
+    }
+  }
+}
+<app-disclaimer />

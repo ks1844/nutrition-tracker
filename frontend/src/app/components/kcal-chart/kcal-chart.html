@@ -1,0 +1,87 @@
+<svg
+  [attr.viewBox]="'0 0 ' + w + ' ' + h"
+  class="w-full"
+  role="img"
+  aria-label="直近7日のエネルギー摂取量の棒グラフ"
+>
+  @for (g of grid(); track g.y) {
+    <line
+      [attr.x1]="pad.l"
+      [attr.x2]="w - pad.r"
+      [attr.y1]="g.y"
+      [attr.y2]="g.y"
+      stroke="rgba(100,100,160,0.18)"
+    />
+    <text [attr.x]="pad.l - 6" [attr.y]="g.y + 4" text-anchor="end" font-size="10" fill="#4f5a82">
+      {{ g.label }}
+    </text>
+  }
+  @for (b of bars(); track b.date) {
+    @if (b.has) {
+      <rect
+        [attr.x]="b.x"
+        [attr.y]="b.y"
+        [attr.width]="b.w"
+        [attr.height]="b.h"
+        rx="6"
+        fill="url(#kcalGrad)"
+      />
+      <text
+        [attr.x]="b.x + b.w / 2"
+        [attr.y]="b.y - 4"
+        text-anchor="middle"
+        font-size="9.5"
+        font-weight="700"
+        fill="#1d2340"
+      >
+        {{ b.value }}
+      </text>
+    } @else {
+      <text
+        [attr.x]="b.x + b.w / 2"
+        [attr.y]="h - pad.b - 6"
+        text-anchor="middle"
+        font-size="9"
+        fill="#4f5a82"
+      >
+        なし
+      </text>
+    }
+    <text
+      [attr.x]="b.x + b.w / 2"
+      [attr.y]="h - 8"
+      text-anchor="middle"
+      font-size="10"
+      fill="#4f5a82"
+    >
+      {{ b.label }}
+    </text>
+  }
+  @if (targetY() !== null) {
+    <line
+      [attr.x1]="pad.l"
+      [attr.x2]="w - pad.r"
+      [attr.y1]="targetY()"
+      [attr.y2]="targetY()"
+      stroke="#7c3aed"
+      stroke-width="1.6"
+      stroke-dasharray="5 4"
+    />
+    <text
+      [attr.x]="w - pad.r"
+      [attr.y]="targetY()! - 4"
+      text-anchor="end"
+      font-size="9.5"
+      font-weight="700"
+      fill="#6d28d9"
+    >
+      目標 {{ target() }}
+    </text>
+  }
+  <defs>
+    <linearGradient id="kcalGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a78bfa" />
+      <stop offset="100%" stop-color="#60a5fa" />
+    </linearGradient>
+  </defs>
+</svg>

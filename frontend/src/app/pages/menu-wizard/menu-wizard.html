@@ -1,0 +1,369 @@
+<app-page-header [title]="editId() ? 'メニューを編集' : 'メニューを作る'" [back]="['/menus']" />
+
+<!-- ステップ表示 -->
+<ol class="glass m-0 grid list-none grid-cols-4 gap-1 p-2" aria-label="作成の手順">
+  @for (s of steps; track s; let i = $index) {
+    <li
+      class="flex flex-col items-center gap-0.5 rounded-2xl px-1 py-1.5 text-center"
+      [class.step-on]="i === step()"
+      [attr.aria-current]="i === step() ? 'step' : null"
+    >
+      <span
+        class="grid h-7 w-7 place-items-center rounded-full text-[0.8rem] font-extrabold"
+        [class]="i <= step() ? 'step-dot' : 'step-dot-off'"
+      >
+        @if (i < step()) {
+          <app-icon name="check" [size]="14" />
+        } @else {
+          {{ i + 1 }}
+        }
+      </span>
+      <span class="text-[0.7rem] font-extrabold">{{ s }}</span>
+    </li>
+  }
+</ol>
+
+<!-- リアルタイム栄養プレビュー -->
+@if (step() >= 1) {
+  <section class="glass p-3.5" aria-label="栄養プレビュー" aria-live="polite">
+    <div class="mb-1.5 flex items-center justify-between">
+      <h2 class="h-sub m-0 flex items-center gap-1.5">
+        <app-icon name="sparkle" [size]="16" />
+        メニュー全体の栄養（概算）
+      </h2>
+      @if (previewing()) {
+        <span class="muted text-[0.72rem] font-bold">計算中…</span>
+      }
+    </div>
+    @if (previewRows().length) {
+      <dl class="m-0 grid grid-cols-3 gap-2" [class.opacity-60]="previewing()">
+        @for (r of previewRows(); track r.code) {
+          <div class="glass-inset px-2 py-1.5 text-center">
+            <dt class="muted text-[0.68rem] font-extrabold">{{ r.name }}</dt>
+            <dd class="tabnum m-0 text-[0.98rem] font-extrabold">
+              {{ r.value }}
+              <span class="muted text-[0.65rem]">{{ r.unit }}</span>
+              @if (r.inc) {
+                <span class="text-[0.7rem]" title="未測定の食材を含みます">※</span>
+              }
+            </dd>
+          </div>
+        }
+      </dl>
+      @if (hasIncomplete()) {
+        <p class="muted m-0 mt-1.5 text-[0.72rem] font-bold">
+          ※未測定の食材を含むため、実際より少ない可能性があります。
+        </p>
+      }
+    } @else {
+      <p class="muted m-0 text-[0.82rem] font-bold">食材を追加すると、ここに栄養が表示されます。</p>
+    }
+  </section>
+}
+
+<!-- ① 名前 -->
+@if (step() === 0) {
+  <section class="glass pop-in flex flex-col gap-3 p-4">
+    <div>
+      <label class="field-label" for="mw-name">メニュー名</label>
+      <input
+        id="mw-name"
+        class="field"
+        type="text"
+        maxlength="100"
+        placeholder="例：豚汁"
+        [value]="name()"
+        (input)="name.set($any($event.target).value)"
+        [attr.aria-invalid]="!!errs()['name']"
+      />
+      @if (errs()['name']) {
+        <p class="field-error">{{ errs()['name'] }}</p>
+      }
+    </div>
+    <div>
+      <label class="field-label" for="mw-on">作った日</label>
+      <input
+        id="mw-on"
+        class="field"
+        type="date"
+        [value]="cookedOn()"
+        (input)="cookedOn.set($any($event.target).value)"
+      />
+    </div>
+    <div>
+      <label class="field-label" for="mw-memo">メモ（任意）</label>
+      <input
+        id="mw-memo"
+        class="field"
+        type="text"
+        maxlength="500"
+        [value]="memo()"
+        (input)="memo.set($any($event.target).value)"
+      />
+    </div>
+  </section>
+}
+
+<!-- ② 食材 -->
+@if (step() === 1) {
+  <section class="flex flex-col gap-3">
+    @for (r of rows(); track r.key; let i = $index) {
+      <article class="glass pop-in p-3.5">
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="m-0 min-w-0 truncate text-[1rem] font-extrabold">{{ r.name }}</h3>
+          <div class="flex shrink-0 gap-1">
+            <button
+              type="button"
+              class="btn btn-sm !min-h-9 !w-9 !p-0"
+              [disabled]="i === 0"
+              (click)="move(i, -1)"
+              [attr.aria-label]="r.name + 'を上へ'"
+            >
+              <app-icon name="arrow-up" [size]="15" />
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm !min-h-9 !w-9 !p-0"
+              [disabled]="i === rows().length - 1"
+              (click)="move(i, 1)"
+              [attr.aria-label]="r.name + 'を下へ'"
+            >
+              <app-icon name="arrow-down" [size]="15" />
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-danger !min-h-9 !w-9 !p-0"
+              (click)="removeRow(r.key)"
+              [attr.aria-label]="r.name + 'を削除'"
+            >
+              <app-icon name="trash" [size]="15" />
+            </button>
+          </div>
+        </div>
+        <div class="mt-2 flex items-center gap-2">
+          <input
+            class="field tabnum !w-28"
+            type="number"
+            inputmode="decimal"
+            min="0"
+            step="any"
+            [value]="r.quantity || ''"
+            (input)="patchRow(r.key, { quantity: num($event) })"
+            [attr.aria-label]="r.name + 'の数量'"
+            [attr.aria-invalid]="!!errs()['items[' + i + '].quantity']"
+          />
+          <span class="muted tabnum ml-auto text-[0.8rem] font-bold">= {{ gramsOf(i) }}</span>
+        </div>
+        <div class="mt-2">
+          <app-chip-group
+            [options]="unitOptions(r)"
+            [value]="r.unitId"
+            [label]="r.name + 'の単位'"
+            (changed)="setUnit(r.key, $event)"
+          />
+        </div>
+        @if (errs()['items[' + i + '].quantity']) {
+          <p class="field-error">{{ errs()['items[' + i + '].quantity'] }}</p>
+        }
+      </article>
+    } @empty {
+      <app-empty-state
+        icon="search"
+        title="食材を追加しましょう"
+        text="にんじん・豚肉・味噌など、かな／カナ／漢字で検索できます"
+      />
+    }
+    @if (errs()['items']) {
+      <p class="field-error">{{ errs()['items'] }}</p>
+    }
+    <button type="button" class="btn" (click)="foodDialog.set(true)">
+      <app-icon name="plus" [size]="18" />
+      食材を追加
+    </button>
+    <p class="muted m-0 text-[0.75rem] font-semibold">
+      入力する重さはすべて
+      <b>皮などを含む廃棄前の重さ</b>
+      です。{{ lossNote }}
+    </p>
+  </section>
+}
+
+<!-- ③ 完成重量 -->
+@if (step() === 2) {
+  <section class="glass pop-in flex flex-col gap-3 p-4">
+    <h2 class="h-sub m-0">完成後の重さ</h2>
+    <p class="muted m-0 text-[0.82rem] font-semibold">
+      調理後の料理全体の重さです。鍋ごと量って、空の鍋の重さを引くと簡単です。
+    </p>
+    @if (!direct()) {
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="field-label" for="mw-pot">鍋ごとの重さ (g)</label>
+          <input
+            id="mw-pot"
+            class="field tabnum"
+            type="number"
+            inputmode="decimal"
+            min="0"
+            step="any"
+            [value]="potG() || ''"
+            (input)="potG.set(num($event))"
+          />
+        </div>
+        <div>
+          <label class="field-label" for="mw-empty">空の鍋の重さ (g)</label>
+          <input
+            id="mw-empty"
+            class="field tabnum"
+            type="number"
+            inputmode="decimal"
+            min="0"
+            step="any"
+            [value]="emptyG() || ''"
+            (input)="emptyG.set(num($event))"
+          />
+        </div>
+      </div>
+      <div class="glass-inset flex items-baseline justify-between px-4 py-3">
+        <span class="text-[0.85rem] font-extrabold">完成後重量</span>
+        <span class="tabnum text-[1.6rem] font-extrabold" [class.text-rose-600]="cookedError()">
+          {{ cooked() > 0 ? fmtNum(cooked(), 1) : '—' }}
+          <span class="muted ml-1 text-[0.8rem]">g</span>
+        </span>
+      </div>
+      @if (potG() > 0 && emptyG() > 0 && potG() <= emptyG()) {
+        <p class="field-error">鍋ごとの重さは、空の鍋より重くしてください。</p>
+      }
+    } @else {
+      <div>
+        <label class="field-label" for="mw-direct">完成後重量 (g)</label>
+        <input
+          id="mw-direct"
+          class="field tabnum"
+          type="number"
+          inputmode="decimal"
+          min="0"
+          step="any"
+          [value]="directG() || ''"
+          (input)="directG.set(num($event))"
+        />
+      </div>
+    }
+    @if (errs()['cookedTotalWeightG']) {
+      <p class="field-error">{{ errs()['cookedTotalWeightG'] }}</p>
+    }
+    <button type="button" class="btn btn-sm self-start" (click)="direct.set(!direct())">
+      {{ direct() ? '鍋の重さから計算する' : '完成後重量を直接入力する' }}
+    </button>
+    @if (gapNote()) {
+      <p
+        class="badge st-over !whitespace-normal !rounded-xl !px-3 !py-2 text-[0.78rem]"
+        role="note"
+      >
+        <app-icon name="alert" [size]="14" />
+        {{ gapNote() }}
+      </p>
+    }
+  </section>
+}
+
+<!-- ④ 1食分 -->
+@if (step() === 3) {
+  <section class="glass pop-in flex flex-col gap-3 p-4">
+    <h2 class="h-sub m-0">1食分（1杯）の定義</h2>
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="field-label" for="mw-serv">何杯分か</label>
+        <input
+          id="mw-serv"
+          class="field tabnum"
+          type="number"
+          inputmode="decimal"
+          min="0"
+          step="0.5"
+          [value]="servings() || ''"
+          (input)="servings.set(num($event))"
+          [attr.aria-invalid]="!!errs()['servings']"
+        />
+        @if (errs()['servings']) {
+          <p class="field-error">{{ errs()['servings'] }}</p>
+        }
+      </div>
+      <div>
+        <span class="field-label">呼び方</span>
+        <app-chip-group
+          [options]="labelOptions"
+          [value]="label()"
+          label="1杯の呼び方"
+          (changed)="label.set('' + $event)"
+        />
+      </div>
+    </div>
+    <div class="glass-inset flex items-baseline justify-between px-4 py-3">
+      <span class="text-[0.85rem] font-extrabold">1杯の重さ</span>
+      <span class="tabnum text-[1.4rem] font-extrabold">
+        {{ servingWeight() }}
+        <span class="muted ml-1 text-[0.8rem]">g</span>
+      </span>
+    </div>
+    @if (perServingRows().length) {
+      <div>
+        <h3 class="h-sub m-0 mb-1.5">{{ label() }}1杯あたり</h3>
+        <dl class="m-0 grid grid-cols-3 gap-2">
+          @for (r of perServingRows(); track r.code) {
+            <div class="glass-inset px-2 py-1.5 text-center">
+              <dt class="muted text-[0.68rem] font-extrabold">{{ r.name }}</dt>
+              <dd class="tabnum m-0 text-[0.98rem] font-extrabold">
+                {{ r.value }}
+                <span class="muted text-[0.65rem]">{{ r.unit }}</span>
+                @if (r.inc) {
+                  <span class="text-[0.7rem]">※</span>
+                }
+              </dd>
+            </div>
+          }
+        </dl>
+      </div>
+    }
+    <div class="glass-inset px-3.5 py-3 text-[0.85rem] font-bold">
+      <p class="m-0">
+        <span class="muted">メニュー名：</span>
+        {{ name() || '（未入力）' }}
+      </p>
+      <p class="m-0">
+        <span class="muted">食材：</span>
+        {{ rows().length }}品・
+        <span class="muted">完成後重量：</span>
+        {{ cooked() > 0 ? fmtNum(cooked(), 1) + 'g' : '—' }}
+      </p>
+    </div>
+    <p class="muted m-0 text-[0.75rem] font-semibold">
+      {{ lossNote }}
+      @if (editId()) {
+        保存しても、すでに記録した食事の栄養は変わりません。
+      }
+    </p>
+  </section>
+}
+
+<!-- 操作 -->
+<div class="flex gap-2">
+  <button type="button" class="btn flex-1" (click)="back()">
+    {{ step() === 0 ? 'やめる' : '戻る' }}
+  </button>
+  @if (step() < 3) {
+    <button type="button" class="btn btn-primary flex-1" (click)="next()">
+      次へ
+      <app-icon name="chevron-right" [size]="16" />
+    </button>
+  } @else {
+    <button type="button" class="btn btn-primary flex-1" [disabled]="saving()" (click)="save()">
+      {{ saving() ? '保存中…' : '保存する' }}
+    </button>
+  }
+</div>
+<app-disclaimer />
+
+@if (foodDialog()) {
+  <app-food-search-dialog (picked)="addFood($event)" (closed)="foodDialog.set(false)" />
+}

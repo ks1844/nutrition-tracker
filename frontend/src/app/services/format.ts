@@ -1,5 +1,5 @@
 import { Goal, InputMode, MealRecordItemView, MealType, NutrientStatus, ScoreBand } from '../types/api';
-import { IconName } from '../components/icon';
+import { IconName } from '../components/icon/icon';
 
 export const MEAL_LABEL: Record<MealType, string> = {
   breakfast: '朝食',

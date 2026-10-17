@@ -1,0 +1,21 @@
+<div
+  class="pointer-events-none fixed inset-x-0 top-3 z-[60] mx-auto flex max-w-md flex-col gap-2 px-4"
+  aria-live="polite"
+>
+  @for (t of ui.toasts(); track t.id) {
+    <div
+      class="glass-strong pop-in pointer-events-auto flex items-center gap-2 px-4 py-3 text-[0.9rem] font-bold"
+      [attr.role]="t.kind === 'error' ? 'alert' : 'status'"
+    >
+      <app-icon
+        [name]="t.kind === 'error' ? 'alert' : t.kind === 'info' ? 'info' : 'check'"
+        [size]="18"
+        [class]="t.kind === 'error' ? 'text-rose-600' : 'text-emerald-600'"
+      />
+      <span class="flex-1">{{ t.text }}</span>
+      <button type="button" class="muted" (click)="ui.dismiss(t.id)" aria-label="閉じる">
+        <app-icon name="x" [size]="16" />
+      </button>
+    </div>
+  }
+</div>

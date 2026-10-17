@@ -1,0 +1,199 @@
+<app-page-header
+  title="プロフィール"
+  [subtitle]="first() ? 'はじめに身体情報を入力しましょう' : '目標の計算に使います'"
+/>
+
+@if (first()) {
+  <div class="glass pop-in flex gap-3 p-4">
+    <app-icon name="sparkle" [size]="22" class="mt-0.5 shrink-0 text-violet-600" />
+    <p class="m-0 text-[0.9rem] font-bold">
+      ようこそ。性別・生年月日・身長・体重・活動レベル・目的を入力すると、1日の目標が自動で計算されます。
+    </p>
+  </div>
+}
+
+<form class="glass flex flex-col gap-4 p-4" (submit)="save($event)" novalidate>
+  <fieldset class="m-0 border-0 p-0">
+    <legend class="field-label">性別</legend>
+    <div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="性別">
+      @for (s of sexes; track s.v) {
+        <button
+          type="button"
+          class="chip justify-center"
+          role="radio"
+          [attr.aria-pressed]="form().sex === s.v"
+          [attr.aria-checked]="form().sex === s.v"
+          (click)="patch({ sex: s.v })"
+        >
+          {{ s.l }}
+        </button>
+      }
+    </div>
+    @if (errs()['sex']) {
+      <p class="field-error">{{ errs()['sex'] }}</p>
+    }
+  </fieldset>
+
+  <div>
+    <label class="field-label" for="pf-birth">生年月日</label>
+    <input
+      id="pf-birth"
+      class="field"
+      type="date"
+      [max]="today"
+      [value]="form().birthDate"
+      [attr.aria-invalid]="!!errs()['birthDate']"
+      (input)="patch({ birthDate: $any($event.target).value })"
+    />
+    @if (errs()['birthDate']) {
+      <p class="field-error">{{ errs()['birthDate'] }}</p>
+    }
+  </div>
+
+  <div class="grid grid-cols-2 gap-3">
+    <div>
+      <label class="field-label" for="pf-h">身長 (cm)</label>
+      <input
+        id="pf-h"
+        class="field tabnum"
+        type="number"
+        inputmode="decimal"
+        step="0.1"
+        [value]="form().heightCm || ''"
+        [attr.aria-invalid]="!!errs()['heightCm']"
+        (input)="patch({ heightCm: num($event) })"
+      />
+      @if (errs()['heightCm']) {
+        <p class="field-error">{{ errs()['heightCm'] }}</p>
+      }
+    </div>
+    <div>
+      <label class="field-label" for="pf-w">体重 (kg)</label>
+      <input
+        id="pf-w"
+        class="field tabnum"
+        type="number"
+        inputmode="decimal"
+        step="0.1"
+        [value]="form().weightKg || ''"
+        [attr.aria-invalid]="!!errs()['weightKg']"
+        (input)="patch({ weightKg: num($event) })"
+      />
+      @if (errs()['weightKg']) {
+        <p class="field-error">{{ errs()['weightKg'] }}</p>
+      }
+    </div>
+  </div>
+
+  <div>
+    <span class="field-label" id="pf-act-label">活動レベル</span>
+    <app-chip-group
+      [stack]="true"
+      label="活動レベル"
+      [options]="levelOptions"
+      [value]="form().activityLevel"
+      (changed)="patch({ activityLevel: +$event! })"
+    />
+    @if (errs()['activityLevel']) {
+      <p class="field-error">{{ errs()['activityLevel'] }}</p>
+    }
+  </div>
+
+  <fieldset class="m-0 border-0 p-0">
+    <legend class="field-label">目的</legend>
+    <div class="grid grid-cols-3 gap-2" role="radiogroup" aria-label="目的">
+      @for (g of goals; track g) {
+        <button
+          type="button"
+          class="chip justify-center !px-2"
+          role="radio"
+          [attr.aria-pressed]="form().goal === g"
+          [attr.aria-checked]="form().goal === g"
+          (click)="patch({ goal: g })"
+        >
+          {{ goalLabel[g] }}
+        </button>
+      }
+    </div>
+    @if (errs()['goal']) {
+      <p class="field-error">{{ errs()['goal'] }}</p>
+    }
+  </fieldset>
+
+  <section class="glass-inset flex flex-col gap-2 p-3.5" aria-label="自動算出された目標">
+    <h2 class="h-sub m-0 flex items-center gap-1.5">
+      <app-icon name="sparkle" [size]="16" />
+      自動算出された目標
+    </h2>
+    <dl class="m-0 grid grid-cols-2 gap-2">
+      <div>
+        <dt class="muted text-[0.75rem] font-bold">エネルギー</dt>
+        <dd class="tabnum m-0 text-[1.2rem] font-extrabold">
+          {{ energyText() }}
+          <span class="muted ml-1 text-[0.75rem]">kcal</span>
+        </dd>
+      </div>
+      <div>
+        <dt class="muted text-[0.75rem] font-bold">タンパク質</dt>
+        <dd class="tabnum m-0 text-[1.2rem] font-extrabold">
+          {{ proteinText() }}
+          <span class="muted ml-1 text-[0.75rem]">g</span>
+        </dd>
+      </div>
+    </dl>
+    <label class="flex items-center gap-2 text-[0.85rem] font-bold">
+      <input
+        type="checkbox"
+        class="h-5 w-5 accent-violet-600"
+        [checked]="override()"
+        (change)="toggleOverride($any($event.target).checked)"
+      />
+      エネルギー目標を手動で上書きする
+    </label>
+    @if (override()) {
+      <div>
+        <label class="field-label" for="pf-e">エネルギー目標 (kcal)</label>
+        <input
+          id="pf-e"
+          class="field tabnum"
+          type="number"
+          inputmode="numeric"
+          step="1"
+          [value]="form().energyTargetKcal ?? ''"
+          [attr.aria-invalid]="!!errs()['energyTargetKcal']"
+          (input)="patch({ energyTargetKcal: num($event) })"
+        />
+        @if (errs()['energyTargetKcal']) {
+          <p class="field-error">{{ errs()['energyTargetKcal'] }}</p>
+        }
+      </div>
+    }
+    <p class="muted m-0 text-[0.72rem] font-semibold">
+      ※エネルギーはMifflin-St Jeor式×活動係数、タンパク質は体重×係数（暫定）で計算しています。
+    </p>
+  </section>
+
+  <button type="submit" class="btn btn-primary w-full" [disabled]="saving()">
+    {{ saving() ? '保存中…' : '保存する' }}
+  </button>
+</form>
+
+@if (mock) {
+  <section class="glass flex flex-col gap-2 p-4" aria-label="プロトタイプ用の操作">
+    <h2 class="h-sub m-0">プロトタイプ用の操作</h2>
+    <p class="muted m-0 text-[0.8rem] font-semibold">
+      Mock データを初期状態に戻します（本番にはありません）。
+    </p>
+    <div class="flex flex-wrap gap-2">
+      <button type="button" class="btn btn-sm" (click)="resetMock(true)">
+        <app-icon name="refresh" [size]="15" />
+        サンプルデータに戻す
+      </button>
+      <button type="button" class="btn btn-sm" (click)="resetMock(false)">
+        <app-icon name="refresh" [size]="15" />
+        プロフィール未登録にする
+      </button>
+    </div>
+  </section>
+}
+<app-disclaimer />
