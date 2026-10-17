@@ -1,0 +1,158 @@
+using System.Net;
+using System.Net.Http.Json;
+using Microsoft.EntityFrameworkCore;
+using NutritionTracker.Api.Dtos;
+using NutritionTracker.Api.Tests.Infrastructure;
+
+namespace NutritionTracker.Api.Tests.Menus;
+
+/// <summary>メニュー API（API-06〜API-12、docs/09.API仕様.md §5）。食材・数値は docs/03.栄養計算仕様.md §9 の正解データ（テスト用ダミー値）。</summary>
+[Collection(ApiCollection.Name)]
+public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
+{
+    public Task InitializeAsync() => fixture.ResetAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    /// <summary>『豚汁』: にんじん 2 本、豚こま肉 400g、みそ 大さじ 4。完成後重量 2400g、8 杯分（お椀）</summary>
+    private static MenuInput Tonjiru(TestData.Golden g, string name = "豚汁") => new(
+        name, new DateOnly(2026, 10, 14), null, 2400m, 8m, "お椀",
+        [
+            new MenuItemInput(g.Carrot.Id, g.CarrotUnitId, 2m),
+            new MenuItemInput(g.Pork.Id, null, 400m),
+            new MenuItemInput(g.Miso.Id, g.MisoUnitId, 4m),
+        ]);
+
+    private async Task<TestData.Golden> SeedAsync()
+    {
+        TestData.Golden? golden = null;
+        await fixture.WithDbAsync(async db => golden = await TestData.AddGoldenAsync(db));
+        return golden!;
+    }
+
+    private async Task<HttpResponseMessage> PostAsync(MenuInput input) => await fixture.Client.PostAsJsonAsync("/api/menus", input);
+
+    private static NutrientAmountDto Nutrient(MenuDetailDto m, string code) => m.Nutrients.Single(n => n.Code == code);
+
+    // ---- API-07 作成 ----
+    [Fact]
+    public async Task AC_MENU_001_Create_ConvertsUnitsToGrams_AndReturnsTotals()
+    {
+        var g = await SeedAsync();
+
+        var res = await PostAsync(Tonjiru(g));
+
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+        var m = (await res.Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        Assert.Equal($"/api/menus/{m.Id}", res.Headers.Location!.OriginalString);
+        Assert.Equal([300m, 400m, 72m], m.Items.Select(i => i.AmountG).ToList()); // AC-CALC-008: 2 本=300g、大さじ 4=72g
+        Assert.Equal(["にんじん", "豚こま肉", "みそ"], m.Items.Select(i => i.FoodName).ToList());
+        Assert.Equal(["本", null, "大さじ"], m.Items.Select(i => i.UnitName).ToList());
+        // AC-CALC-004: メニュー合計
+        Assert.Equal(new NutrientAmountDto("PROT", 91.34m, false), Nutrient(m, "PROT"));
+        Assert.Equal(new NutrientAmountDto("VITC", 31m, true), Nutrient(m, "VITC")); // みそが未測定 → 不完全
+        Assert.Equal(new NutrientAmountDto("VITA_RAE", 1930m, false), Nutrient(m, "VITA_RAE"));
+    }
+
+    [Fact]
+    public async Task AC_MENU_004_Create_ReturnsServingWeightAndPerServingNutrients()
+    {
+        var g = await SeedAsync();
+
+        var m = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+
+        Assert.Equal(300.0m, m.ServingWeightG); // 2400 ÷ 8
+        Assert.Equal(new NutrientAmountDto("PROT", 11.4175m, false), m.PerServing.Single(n => n.Code == "PROT")); // AC-CALC-005
+        Assert.True(m.PerServing.Single(n => n.Code == "VITC").IsIncomplete);
+        Assert.Equal(new RemainingDto(1.000000m, 8.00m, false), m.Remaining); // 記録がなければ全量が残っている
+    }
+
+    [Fact]
+    public async Task Create_GramInput_IsStoredAsEnteredAmount()
+    {
+        var g = await SeedAsync();
+        var m = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+
+        var stored = await fixture.WithDbAsync(db => db.MenuItems.AsNoTracking().OrderBy(i => i.SortOrder).ToListAsync());
+
+        Assert.Equal(3, stored.Count);
+        Assert.All(stored, i => Assert.Equal(m.Id, i.MenuId));
+        Assert.Null(stored[1].UnitId);
+        Assert.Equal((400m, 400m), (stored[1].Quantity, stored[1].AmountG)); // g 入力は数量 = 重量
+    }
+
+    [Fact]
+    public async Task Create_Defaults_ServingLabel_AndRoundsInputs()
+    {
+        var g = await SeedAsync();
+        var input = Tonjiru(g) with { ServingLabel = null, CookedTotalWeightG = 2400.05m, Servings = 8.04m };
+
+        var m = (await (await PostAsync(input)).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+
+        Assert.Equal("お椀", m.ServingLabel);
+        Assert.Equal(2400.1m, m.CookedTotalWeightG); // 小数 1 桁（HALF_UP）
+        Assert.Equal(8.0m, m.Servings);
+    }
+
+    [Fact]
+    public async Task AC_MENU_009_Create_InvalidInput_Returns400WithFieldDetails()
+    {
+        var res = await PostAsync(new MenuInput("  ", null, null, 0m, 0m, new string('あ', 21), []));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var err = (await res.Content.ReadFromJsonAsync<ApiErrorResponse>())!;
+        Assert.Equal("VALIDATION_ERROR", err.Code);
+        Assert.Equal(["name", "cookedTotalWeightG", "servings", "servingLabel", "items"], err.Details.Select(d => d.Field).ToList());
+        Assert.Equal(0, await fixture.WithDbAsync(db => db.Menus.CountAsync())); // 保存されない
+    }
+
+    [Fact]
+    public async Task Create_MissingFields_Returns400()
+    {
+        var res = await PostAsync(new MenuInput(null, null, null, null, null, null, null));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var fields = (await res.Content.ReadFromJsonAsync<ApiErrorResponse>())!.Details.Select(d => d.Field).ToList();
+        Assert.Equal(["name", "cookedTotalWeightG", "servings", "items"], fields);
+    }
+
+    [Fact]
+    public async Task Create_InvalidItems_Return400WithIndexedFields()
+    {
+        var g = await SeedAsync();
+        var input = Tonjiru(g) with
+        {
+            Items =
+            [
+                new MenuItemInput(999999, null, 100m), // 存在しない食材
+                new MenuItemInput(g.Pork.Id, null, 0m), // 数量 0
+                new MenuItemInput(g.Pork.Id, g.CarrotUnitId, 1m), // 他の食材の単位
+            ],
+        };
+
+        var res = await PostAsync(input);
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var fields = (await res.Content.ReadFromJsonAsync<ApiErrorResponse>())!.Details.Select(d => d.Field).ToList();
+        Assert.Equal(["items[0].foodId", "items[1].quantity", "items[2].unitId"], fields);
+    }
+
+    [Fact]
+    public async Task Create_InactiveFood_Returns409WithReasonCode()
+    {
+        var g = await SeedAsync();
+        await fixture.WithDbAsync(async db =>
+        {
+            var food = await db.Foods.SingleAsync(f => f.Id == g.Pork.Id);
+            food.IsActive = false;
+            await db.SaveChangesAsync();
+        });
+
+        var res = await PostAsync(Tonjiru(g));
+
+        Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+        var err = (await res.Content.ReadFromJsonAsync<ApiErrorResponse>())!;
+        Assert.Equal("CONFLICT", err.Code);
+        Assert.Equal(new ErrorDetail("items[1].foodId", "FOOD_INACTIVE"), err.Details.Single());
+    }
+}

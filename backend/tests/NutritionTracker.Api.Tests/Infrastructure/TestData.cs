@@ -66,4 +66,16 @@ public static class TestData
         db, "F3", "みそ", "みそ", aliases: ["味噌"],
         units: [new UnitSpec("大さじ", 18m, true)],
         nutrients: new() { ["PROT"] = 12.0m, ["VITC"] = null, ["VITA_RAE"] = 0m });
+
+    /// <summary>正解データ（にんじん・豚こま肉・みそ）。</summary>
+    public sealed record Golden(Food Carrot, Food Pork, Food Miso)
+    {
+        public long CarrotUnitId => Carrot.Units[0].Id;
+
+        public long MisoUnitId => Miso.Units[0].Id;
+    }
+
+    public static async Task<Golden> AddGoldenAsync(AppDbContext db) =>
+        new(await AddCarrotAsync(db), await AddPorkAsync(db), await AddMisoAsync(db));
 }
+

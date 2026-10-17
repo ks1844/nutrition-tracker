@@ -17,6 +17,8 @@ builder.Services.AddScoped<AppClock>();
 builder.Services.AddScoped<NutrientService>();
 builder.Services.AddScoped<FoodService>();
 builder.Services.AddScoped<ProfileService>();
+builder.Services.AddScoped<NutritionCatalog>();
+builder.Services.AddScoped<MenuService>();
 
 builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(options =>
