@@ -16,6 +16,7 @@ import { Icon } from '../../components/icon/icon';
   selector: 'app-menus-page',
   imports: [RouterLink, PageHeader, EmptyState, Disclaimer, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'page' },
   templateUrl: './menus.html',
 })
 export class MenusPage implements OnInit {

@@ -20,6 +20,7 @@ import { Icon, IconName } from '../../components/icon/icon';
   selector: 'app-home-page',
   imports: [RouterLink, DateNav, PageHeader, ScoreRing, PfcBar, EmptyState, Disclaimer, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'page' },
   templateUrl: './home.html',
 })
 export class HomePage implements OnInit {

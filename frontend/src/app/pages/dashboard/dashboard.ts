@@ -35,6 +35,7 @@ const ORDER: Record<string, number> = { OVER_UL: 0, DEFICIENT: 1, ACHIEVED: 2, N
   selector: 'app-dashboard-page',
   imports: [RouterLink, DateNav, PageHeader, ScoreRing, PfcBar, NutrientBar, EmptyState, Disclaimer, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'page' },
   templateUrl: './dashboard.html',
 })
 export class DashboardPage implements OnInit {

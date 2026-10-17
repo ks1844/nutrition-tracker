@@ -57,6 +57,7 @@ const CHIPS: { label: string; mode: InputMode; value: number | null }[] = [
   selector: 'app-record-page',
   imports: [PageHeader, FoodSearchDialog, MenuPickerDialog, ChipGroup, EmptyState, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'page' },
   templateUrl: './record.html',
 })
 export class RecordPage implements OnInit {

@@ -32,6 +32,7 @@ const PREVIEW_CODES = ['ENERGY', 'PROT', 'FAT', 'CHO', 'VITC', 'VITA_RAE'];
   selector: 'app-menu-wizard-page',
   imports: [PageHeader, FoodSearchDialog, Disclaimer, EmptyState, Icon, ChipGroup],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'page' },
   templateUrl: './menu-wizard.html',
   styleUrl: './menu-wizard.css',
 })

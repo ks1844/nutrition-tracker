@@ -19,6 +19,7 @@ import { environment } from '../../../environments/environment';
   selector: 'app-profile-page',
   imports: [PageHeader, Disclaimer, Icon, ChipGroup],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'page' },
   templateUrl: './profile.html',
 })
 export class ProfilePage implements OnInit {

@@ -17,6 +17,7 @@ import { Icon } from '../../components/icon/icon';
   selector: 'app-trend-page',
   imports: [RouterLink, DateNav, PageHeader, KcalChart, ScoreChart, EmptyState, Disclaimer, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'page' },
   templateUrl: './trend.html',
 })
 export class TrendPage implements OnInit {

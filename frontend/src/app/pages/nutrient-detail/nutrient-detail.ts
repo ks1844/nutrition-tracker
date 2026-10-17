@@ -19,6 +19,7 @@ type Period = 'daily' | 'weekly';
   selector: 'app-nutrient-detail-page',
   imports: [PageHeader, NutrientBar, EmptyState, Disclaimer, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'page' },
   templateUrl: './nutrient-detail.html',
 })
 export class NutrientDetailPage implements OnInit {

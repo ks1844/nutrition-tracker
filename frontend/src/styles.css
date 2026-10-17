@@ -204,6 +204,15 @@ body {
   .fill-over { background: var(--st-over-fill); }
   .fill-none { background: linear-gradient(90deg, #cbd5e1, #94a3b8); }
 
+  /* 画面（ページ）の直下の要素（カード・見出し・日付切替など）を縦に並べ、間を空ける。
+     ページのホスト要素（app-home-page など）に付ける。ホストは既定では inline のため、
+     ここで flex にしないと、親の gap が効かずカード同士がくっつく。 */
+  .page {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
   .h-title { font-size: 1.35rem; font-weight: 800; letter-spacing: 0.01em; }
   .h-sub { font-size: 0.95rem; font-weight: 800; }
   .muted { color: var(--color-ink-soft); }
