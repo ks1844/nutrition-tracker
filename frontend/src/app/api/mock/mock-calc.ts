@@ -16,6 +16,7 @@ import {
   foodPer100g,
 } from './mock-data';
 import { ageOn } from '../../services/date-util';
+import { hiraToKata, kataToHira } from '../../services/text-normalize';
 
 export function roundHalfUp(x: number, digits: number): number {
   const f = 10 ** digits;
@@ -137,12 +138,6 @@ export function foodDetail(def: MockFoodDef): FoodDetail {
 }
 
 // ---- 検索の正規化 ----
-export function kataToHira(s: string): string {
-  return s.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
-}
-export function hiraToKata(s: string): string {
-  return s.replace(/[ぁ-ゖ]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));
-}
 export function searchFoods(q: string): MockFoodDef[] {
   const raw = q.trim().normalize('NFKC').toLowerCase();
   if (!raw) return [];

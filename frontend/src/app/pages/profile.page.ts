@@ -12,11 +12,12 @@ import { todayString } from '../services/date-util';
 import { PageHeader } from '../components/page-header';
 import { Disclaimer } from '../components/disclaimer';
 import { Icon } from '../components/icon';
+import { ChipGroup, ChipOption } from '../components/chip-group';
 import { environment } from '../../environments/environment';
 
 @Component({
   selector: 'app-profile-page',
-  imports: [PageHeader, Disclaimer, Icon],
+  imports: [PageHeader, Disclaimer, Icon, ChipGroup],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-page-header title="プロフィール" [subtitle]="first() ? 'はじめに身体情報を入力しましょう' : '目標の計算に使います'" />
@@ -63,10 +64,8 @@ import { environment } from '../../environments/environment';
       </div>
 
       <div>
-        <label class="field-label" for="pf-act">活動レベル</label>
-        <select id="pf-act" class="field" [value]="form().activityLevel" (change)="patch({ activityLevel: +$any($event.target).value })">
-          @for (lv of levels; track lv) { <option [value]="lv" [selected]="form().activityLevel === lv">{{ activity[lv] }}</option> }
-        </select>
+        <span class="field-label" id="pf-act-label">活動レベル</span>
+        <app-chip-group [stack]="true" label="活動レベル" [options]="levelOptions" [value]="form().activityLevel" (changed)="patch({ activityLevel: +$event! })" />
         @if (errs()['activityLevel']) { <p class="field-error">{{ errs()['activityLevel'] }}</p> }
       </div>
 
@@ -132,8 +131,7 @@ export class ProfilePage implements OnInit {
   protected readonly sexes: { v: Sex; l: string }[] = [{ v: 'female', l: '女性' }, { v: 'male', l: '男性' }];
   protected readonly goals: Goal[] = ['skin', 'muscle', 'both'];
   protected readonly goalLabel = GOAL_LABEL;
-  protected readonly levels = [1, 2, 3, 4];
-  protected readonly activity = ACTIVITY_LABEL;
+  protected readonly levelOptions: ChipOption[] = [1, 2, 3, 4].map((lv) => ({ value: lv, label: ACTIVITY_LABEL[lv] ?? String(lv) }));
 
   protected readonly form = signal<ProfileInput>({
     sex: 'female', birthDate: '', heightCm: 0, weightKg: 0, activityLevel: 2, goal: 'both', energyTargetKcal: null,

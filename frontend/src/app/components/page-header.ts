@@ -7,7 +7,7 @@ import { Icon } from './icon';
   imports: [RouterLink, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <header class="flex items-center justify-between gap-2 px-1 pt-1">
+    <header class="flex items-center justify-between gap-2 px-1 pt-1 pb-1">
       <div class="flex min-w-0 items-center gap-1.5">
         @if (back(); as b) {
           <a [routerLink]="b" class="btn btn-sm !min-h-10 !w-10 !p-0" aria-label="戻る"><app-icon name="chevron-left" /></a>

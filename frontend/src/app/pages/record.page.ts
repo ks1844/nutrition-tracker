@@ -1,16 +1,25 @@
-// SCR-03 食事記録（作成/編集）（FR-010, 011, 030〜037）
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
-import { Router, RouterLink } from '@angular/router';
+// SCR-03 食事記録（FR-010, 011, 030〜037）
+//
+// 自動保存：この画面は「ある日の 1 つの食事区分（スロット）」を編集する。保存ボタンの押し忘れを防ぐため、
+// 次のタイミングで未保存の変更をまとめて保存する（入力のたびには API を呼ばない）。
+//   ・日付を変えたとき／食事区分を変えたとき（変える前の内容を保存してから切り替える）
+//   ・画面を離れるとき（戻る・他のタブへ移動・リンク遷移。CanDeactivate ガード）
+//   ・「完了して戻る」を押したとき
+//   ・ページが非表示になるとき／閉じるとき（best effort）
+import { ChangeDetectionStrategy, Component, HostListener, OnInit, computed, inject, input, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { FoodsApi } from '../api/foods.api';
 import { MealRecordsApi } from '../api/meal-records.api';
 import { MenusApi } from '../api/menus.api';
 import { fieldErrors, toApiError } from '../api/api-client';
-import { FoodSummary, FoodUnit, InputMode, MealRecordInput, MealType, MenuSummary, RecentItems } from '../types/api';
+import { FoodSummary, FoodUnit, InputMode, MealRecordInput, MealRecordSaved, MealType, MenuSummary, RecentItems } from '../types/api';
 import { UiService } from '../services/ui.service';
 import { MEAL_LABEL, MEAL_ORDER, fmtNum, guessMealType } from '../services/format';
 import { todayString } from '../services/date-util';
 import { PageHeader } from '../components/page-header';
 import { FoodSearchDialog } from '../components/food-search-dialog';
+import { MenuPickerDialog } from '../components/menu-picker-dialog';
+import { ChipGroup, ChipOption, ChipValue } from '../components/chip-group';
 import { EmptyState } from '../components/empty-state';
 import { Icon } from '../components/icon';
 
@@ -34,6 +43,8 @@ interface Draft {
   units: FoodUnit[];
 }
 
+type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
 const CHIPS: { label: string; mode: InputMode; value: number | null }[] = [
   { label: '1杯', mode: 'SERVING', value: 1 },
   { label: '1.5杯', mode: 'SERVING', value: 1.5 },
@@ -44,25 +55,27 @@ const CHIPS: { label: string; mode: InputMode; value: number | null }[] = [
 
 @Component({
   selector: 'app-record-page',
-  imports: [RouterLink, PageHeader, FoodSearchDialog, EmptyState, Icon],
+  imports: [PageHeader, FoodSearchDialog, MenuPickerDialog, ChipGroup, EmptyState, Icon],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <app-page-header [title]="editId() ? '記録を編集' : '食事を記録'" [back]="['/']" />
+    <app-page-header title="食事を記録" [back]="['/']" />
 
     <section class="glass flex flex-col gap-3 p-4" aria-label="日付と食事区分">
       <div>
         <label class="field-label" for="rc-date">日付</label>
-        <input id="rc-date" class="field" type="date" [value]="eatenOn()" (input)="eatenOn.set($any($event.target).value)" [attr.aria-invalid]="!!errs()['eatenOn']" />
-        @if (errs()['eatenOn']) { <p class="field-error">{{ errs()['eatenOn'] }}</p> }
+        <input id="rc-date" class="field" type="date" [value]="eatenOn()" (change)="changeDate($any($event.target).value)" />
       </div>
       <div role="radiogroup" aria-label="食事区分" class="grid grid-cols-4 gap-2">
         @for (m of meals; track m) {
-          <button type="button" class="chip justify-center !px-1" role="radio" [attr.aria-pressed]="mealType() === m" [attr.aria-checked]="mealType() === m" (click)="mealType.set(m)">{{ mealLabel[m] }}</button>
+          <button type="button" class="chip justify-center !px-1" role="radio" [attr.aria-pressed]="mealType() === m" [attr.aria-checked]="mealType() === m" (click)="changeMeal(m)">{{ mealLabel[m] }}</button>
         }
       </div>
+      <p class="muted m-0 flex items-start gap-1.5 text-[0.75rem] font-bold" role="status" aria-live="polite">
+        <app-icon [name]="statusIcon()" [size]="14" class="mt-0.5 shrink-0" />{{ statusText() }}
+      </p>
     </section>
 
-    @if (!editId() && recentChips().length) {
+    @if (!loading() && recentChips().length) {
       <section class="glass p-4" aria-label="最近使った">
         <h2 class="h-sub m-0 mb-2 flex items-center gap-1.5"><app-icon name="clock" [size]="16" />最近使った</h2>
         <div class="flex flex-wrap gap-2">
@@ -100,11 +113,10 @@ const CHIPS: { label: string; mode: InputMode; value: number | null }[] = [
             <div class="mt-3 flex items-center gap-2">
               <input class="field tabnum !w-28" type="number" inputmode="decimal" min="0" step="any" [value]="d.value || ''"
                      (input)="setValue(d.key, $any($event.target).value)" [attr.aria-label]="d.name + 'の量'" [attr.aria-invalid]="!!errs()['items[' + i + '].inputValue']" />
-              <select class="field !w-auto" (change)="setUnit(d.key, $any($event.target).value)" [attr.aria-label]="'単位'">
-                <option value="" [selected]="d.unitId === null">g</option>
-                @for (u of d.units; track u.id) { <option [value]="u.id" [selected]="d.unitId === u.id">{{ u.unitName }}</option> }
-              </select>
               <span class="muted tabnum ml-auto text-[0.8rem] font-bold">≒ {{ gramsText(d) }}</span>
+            </div>
+            <div class="mt-2">
+              <app-chip-group [options]="unitOptions(d)" [value]="d.unitId" [label]="d.name + 'の単位'" (changed)="setUnit(d.key, $event)" />
             </div>
           }
           @if (errs()['items[' + i + '].inputValue']) { <p class="field-error">{{ errs()['items[' + i + '].inputValue'] }}</p> }
@@ -119,12 +131,16 @@ const CHIPS: { label: string; mode: InputMode; value: number | null }[] = [
           </div>
         </article>
       } @empty {
-        <app-empty-state icon="pot" title="まだ項目がありません" text="メニューか食材を追加してください" />
+        @if (loading()) {
+          <p class="muted text-center text-[0.9rem] font-bold">読み込み中…</p>
+        } @else {
+          <app-empty-state icon="pot" title="まだ項目がありません" text="メニューか食材を追加してください。選んだ内容は自動で保存されます" />
+        }
       }
     </section>
 
     <div class="grid grid-cols-2 gap-2">
-      <button type="button" class="btn" (click)="openMenuPicker()"><app-icon name="pot" [size]="18" />メニューから</button>
+      <button type="button" class="btn" (click)="menuPicker.set(true)"><app-icon name="pot" [size]="18" />メニューから</button>
       <button type="button" class="btn" (click)="foodDialog.set(true)"><app-icon name="search" [size]="18" />食材から</button>
     </div>
     @if (errs()['items']) { <p class="field-error">{{ errs()['items'] }}</p> }
@@ -132,15 +148,15 @@ const CHIPS: { label: string; mode: InputMode; value: number | null }[] = [
     <section class="glass flex flex-col gap-3 p-4">
       <div>
         <label class="field-label" for="rc-memo">メモ（任意）</label>
-        <input id="rc-memo" class="field" type="text" maxlength="500" [value]="memo()" (input)="memo.set($any($event.target).value)" />
+        <input id="rc-memo" class="field" type="text" maxlength="500" [value]="memo()" (input)="setMemo($any($event.target).value)" />
       </div>
       <div class="flex items-baseline justify-between">
         <span class="muted text-[0.85rem] font-bold">この食事の合計</span>
         <span class="tabnum text-[1.5rem] font-extrabold">約 {{ totalKcal() }}<span class="muted ml-1 text-[0.8rem]">kcal</span></span>
       </div>
-      <button type="button" class="btn btn-primary w-full" [disabled]="saving() || items().length === 0" (click)="save()">{{ saving() ? '保存中…' : '保存する' }}</button>
-      @if (editId()) {
-        <button type="button" class="btn btn-danger w-full" (click)="removeRecord()">この記録を削除</button>
+      <button type="button" class="btn btn-primary w-full" [disabled]="saveState() === 'saving'" (click)="done()">完了して戻る</button>
+      @if (recordIds().length) {
+        <button type="button" class="btn btn-danger w-full" (click)="removeRecord()">この食事の記録を削除</button>
       }
     </section>
 
@@ -148,33 +164,7 @@ const CHIPS: { label: string; mode: InputMode; value: number | null }[] = [
       <app-food-search-dialog (picked)="addFood($event)" (closed)="foodDialog.set(false)" />
     }
     @if (menuPicker()) {
-      <div class="fixed inset-0 z-[55] flex items-end justify-center bg-indigo-950/25 backdrop-blur-sm sm:items-center sm:p-4" (click)="menuPicker.set(false)">
-        <section class="glass-strong pop-in flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden !rounded-b-none sm:!rounded-b-3xl" role="dialog" aria-modal="true" aria-labelledby="mp-title" (click)="$event.stopPropagation()">
-          <header class="flex items-center justify-between px-4 pt-4 pb-2">
-            <h2 id="mp-title" class="h-sub m-0">メニューを選ぶ</h2>
-            <button type="button" class="btn btn-sm !w-10 !p-0" (click)="menuPicker.set(false)" aria-label="閉じる"><app-icon name="x" /></button>
-          </header>
-          <div class="overflow-y-auto px-4 pb-4">
-            @if (menuList().length === 0) {
-              <app-empty-state icon="pot" title="メニューがありません" text="先にメニューを作成しましょう">
-                <a routerLink="/menus/new" class="btn btn-primary btn-sm">メニューを作る</a>
-              </app-empty-state>
-            } @else {
-              <ul class="m-0 flex list-none flex-col gap-2 p-0">
-                @for (m of menuList(); track m.id) {
-                  <li>
-                    <button type="button" class="glass-inset flex w-full items-center justify-between gap-2 px-3.5 py-3 text-left" (click)="addMenu(m)">
-                      <span class="min-w-0"><span class="block truncate text-[0.95rem] font-extrabold">{{ m.name }}</span>
-                        <span class="muted tabnum block text-[0.78rem] font-bold">残り {{ fmtNum(m.remaining.servings, 1) }}杯（{{ Math.round(m.remaining.ratio * 100) }}%）</span></span>
-                      <app-icon name="plus" />
-                    </button>
-                  </li>
-                }
-              </ul>
-            }
-          </div>
-        </section>
-      </div>
+      <app-menu-picker-dialog (picked)="addMenu($event)" (closed)="menuPicker.set(false)" />
     }
   `,
 })
@@ -189,8 +179,6 @@ export class RecordPage implements OnInit {
   private readonly ui = inject(UiService);
   private readonly router = inject(Router);
 
-  protected readonly Math = Math;
-  protected readonly fmtNum = fmtNum;
   protected readonly meals = MEAL_ORDER;
   protected readonly mealLabel = MEAL_LABEL;
   protected readonly chips = CHIPS;
@@ -200,14 +188,18 @@ export class RecordPage implements OnInit {
   protected readonly memo = signal('');
   protected readonly items = signal<Draft[]>([]);
   protected readonly errs = signal<Record<string, string>>({});
-  protected readonly saving = signal(false);
+  protected readonly loading = signal(true);
   protected readonly foodDialog = signal(false);
   protected readonly menuPicker = signal(false);
-  protected readonly menuList = signal<MenuSummary[]>([]);
+  /** このスロット（日付＋食事区分）に保存済みの記録 ID。 */
+  protected readonly recordIds = signal<number[]>([]);
+  readonly dirty = signal(false);
+  protected readonly saveState = signal<SaveState>('idle');
   private readonly recent = signal<RecentItems>({ menus: [], foods: [] });
   private seq = 1;
-
-  protected readonly editId = computed(() => (this.id() ? Number(this.id()) : null));
+  private rev = 0;
+  private slotSeq = 0;
+  private inflight: Promise<boolean> | null = null;
 
   protected readonly recentChips = computed(() => {
     const r = this.recent();
@@ -219,50 +211,220 @@ export class RecordPage implements OnInit {
 
   protected readonly totalKcal = computed(() => this.fmtK(this.items().reduce((s, d) => s + this.kcalOf(d), 0)));
 
+  protected readonly statusText = computed(() => {
+    if (this.saveState() === 'saving') return '保存中…';
+    if (this.saveState() === 'error') return '保存できていません。入力内容を確認してください。';
+    if (this.dirty()) return '未保存の変更があります。日付・食事区分を変えるか、画面を離れると自動で保存されます。';
+    if (this.recordIds().length) return '保存済みです。変更は自動で保存されます。';
+    return '項目を選ぶと、日付・食事区分を変えたときや画面を離れるときに自動で保存されます。';
+  });
+  protected readonly statusIcon = computed(() =>
+    this.saveState() === 'error' ? 'alert' as const : this.dirty() || this.saveState() === 'saving' ? 'clock' as const : 'check' as const,
+  );
+
   async ngOnInit(): Promise<void> {
     const q = this.date();
     if (q) this.eatenOn.set(q);
     try {
       this.recent.set(await this.recApi.recent(8));
-      this.menuList.set(await this.menusApi.list());
-      if (this.editId()) await this.loadForEdit();
-      else if (this.menuId()) await this.addMenuById(Number(this.menuId()));
+      if (this.id()) {
+        // 編集リンク（/record/:id）：その記録の食事区分のスロットを開く
+        const day = await this.recApi.ofDay(this.eatenOn());
+        const rec = day.records.find((r) => r.id === Number(this.id()));
+        if (rec) this.mealType.set(rec.mealType);
+      }
+      await this.loadSlot();
+      if (!this.id() && this.menuId()) await this.addMenuById(Number(this.menuId()));
     } catch (e) {
       this.ui.error(toApiError(e).message);
+      this.loading.set(false);
     }
   }
 
-  private async loadForEdit(): Promise<void> {
+  // ---- スロット（日付＋食事区分）の読み込み・切替 ----
+  private async loadSlot(): Promise<void> {
+    const seq = ++this.slotSeq;
+    this.loading.set(true);
+    this.items.set([]);
+    this.recordIds.set([]);
+    this.memo.set('');
+    this.errs.set({});
+    this.dirty.set(false);
+    this.saveState.set('idle');
     const day = await this.recApi.ofDay(this.eatenOn());
-    const rec = day.records.find((r) => r.id === this.editId());
-    if (!rec) {
-      this.ui.error('記録が見つかりませんでした');
-      await this.router.navigateByUrl('/');
-      return;
-    }
-    this.mealType.set(rec.mealType);
-    this.memo.set(rec.memo ?? '');
+    if (seq !== this.slotSeq) return;
+    const recs = day.records.filter((r) => r.mealType === this.mealType());
     const drafts: Draft[] = [];
-    for (const it of rec.items) {
-      if (it.menuId != null) {
-        const d = await this.makeMenuDraft(it.menuId, it.inputMode, it.inputValue, it.portionRatio ?? 0);
-        if (d) drafts.push(d);
-      } else if (it.foodId != null) {
-        const d = await this.makeFoodDraft(it.foodId, it.unitId, it.inputMode, it.inputValue);
+    for (const rec of recs) {
+      for (const it of rec.items) {
+        const d =
+          it.menuId != null ? await this.makeMenuDraft(it.menuId, it.inputMode, it.inputValue, it.portionRatio ?? 0)
+          : it.foodId != null ? await this.makeFoodDraft(it.foodId, it.unitId, it.inputMode, it.inputValue)
+          : null;
         if (d) drafts.push(d);
       }
     }
+    if (seq !== this.slotSeq) return;
     this.items.set(drafts);
+    this.recordIds.set(recs.map((r) => r.id));
+    this.memo.set(recs[0]?.memo ?? '');
+    this.dirty.set(false);
+    if (recs.length) this.saveState.set('saved');
+    this.loading.set(false);
   }
 
-  // ---- 追加 ----
-  protected async openMenuPicker(): Promise<void> {
+  /** 切替の前に、いまのスロットの未保存の変更を保存する。保存できなければ切り替えない。 */
+  private async switchSlot(date: string, meal: MealType): Promise<void> {
+    if (date === this.eatenOn() && meal === this.mealType()) return;
+    if (!(await this.flush())) return;
+    this.eatenOn.set(date);
+    this.mealType.set(meal);
     try {
-      this.menuList.set(await this.menusApi.list());
+      await this.loadSlot();
+    } catch (e) {
+      this.ui.error(toApiError(e).message);
+      this.loading.set(false);
+    }
+  }
+
+  protected async changeDate(value: string): Promise<void> {
+    if (!value) return;
+    await this.switchSlot(value, this.mealType());
+  }
+
+  protected async changeMeal(m: MealType): Promise<void> {
+    await this.switchSlot(this.eatenOn(), m);
+  }
+
+  // ---- 保存（自動） ----
+  /** 未保存の変更を保存する。保存すべきものが無ければ何もしない。成功（または不要）なら true。 */
+  async flush(announce = false): Promise<boolean> {
+    if (this.inflight) await this.inflight;
+    if (!this.dirty()) return true;
+    const p = this.doFlush(announce);
+    this.inflight = p;
+    try {
+      return await p;
+    } finally {
+      this.inflight = null;
+    }
+  }
+
+  private buildInput(): MealRecordInput {
+    return {
+      eatenOn: this.eatenOn(), mealType: this.mealType(), memo: this.memo().trim() || null,
+      items: this.items().map((d) =>
+        d.kind === 'menu'
+          ? { menuId: d.id, inputMode: d.mode, inputValue: d.value }
+          : { foodId: d.id, unitId: d.unitId, inputMode: d.unitId === null ? ('GRAM' as const) : ('UNIT' as const), inputValue: d.value },
+      ),
+    };
+  }
+
+  private async doFlush(announce: boolean): Promise<boolean> {
+    const rev0 = this.rev;
+    this.errs.set({});
+    const list = this.items();
+    const ids = this.recordIds();
+    try {
+      if (list.length === 0) {
+        // 項目をすべて外した場合は、保存済みの記録も削除して状態をそろえる
+        if (ids.length) {
+          this.saveState.set('saving');
+          for (const id of ids) await this.recApi.remove(id);
+          this.recordIds.set([]);
+          if (announce) this.ui.toast('項目がないため、この食事の記録を削除しました', 'info');
+        }
+        if (this.rev === rev0) this.dirty.set(false);
+        this.saveState.set('idle');
+        return true;
+      }
+      const bad = list.findIndex((d) => !(d.value > 0));
+      if (bad >= 0) {
+        this.errs.set({ [`items[${bad}].inputValue`]: '0より大きい値を入力してください' });
+        this.saveState.set('error');
+        return false;
+      }
+      this.saveState.set('saving');
+      const input = this.buildInput();
+      let saved: MealRecordSaved;
+      if (ids.length) {
+        saved = await this.recApi.update(ids[0] as number, input);
+        for (const extra of ids.slice(1)) await this.recApi.remove(extra); // 同じ食事区分の記録が複数あれば 1 件にまとめる
+      } else {
+        saved = await this.recApi.create(input);
+      }
+      this.recordIds.set([saved.id]);
+      if (this.rev === rev0) this.dirty.set(false);
+      this.saveState.set('saved');
+      const w = saved.warnings[0];
+      if (w) this.ui.toast(`保存しました。${w.message}`, 'info');
+      else if (announce) this.ui.toast('食事を保存しました');
+      return true;
+    } catch (e) {
+      this.errs.set(fieldErrors(e));
+      this.saveState.set('error');
+      this.ui.error(toApiError(e).message);
+      return false;
+    }
+  }
+
+  /** 画面を離れる前の処理（CanDeactivate ガードから呼ぶ）。保存できないときは確認する。 */
+  async canLeave(): Promise<boolean> {
+    if (await this.flush(true)) return true;
+    return this.ui.confirm({
+      title: '保存できない項目があります',
+      message: 'このまま移動すると、未保存の変更は失われます。移動しますか？',
+      okLabel: '移動する',
+      danger: true,
+    });
+  }
+
+  protected async done(): Promise<void> {
+    if (!(await this.flush(true))) return;
+    await this.router.navigateByUrl('/');
+  }
+
+  /** タブを閉じる／更新するときは、未保存があればブラウザの確認を出す。 */
+  @HostListener('window:beforeunload', ['$event'])
+  protected onBeforeUnload(ev: BeforeUnloadEvent): void {
+    if (this.dirty()) {
+      ev.preventDefault();
+      ev.returnValue = '';
+    }
+  }
+
+  /** 画面が非表示になる（アプリ切替・タブ切替）ときに、未保存の変更を保存する（best effort）。 */
+  @HostListener('document:visibilitychange')
+  protected onVisibility(): void {
+    if (document.visibilityState === 'hidden' && this.dirty()) void this.flush();
+  }
+
+  protected async removeRecord(): Promise<void> {
+    const ok = await this.ui.confirm({ title: '記録を削除', message: 'この食事の記録を削除します。よろしいですか？', okLabel: '削除する', danger: true });
+    if (!ok) return;
+    try {
+      for (const id of this.recordIds()) await this.recApi.remove(id);
+      this.recordIds.set([]);
+      this.items.set([]);
+      this.dirty.set(false);
+      this.ui.toast('記録を削除しました');
+      await this.router.navigateByUrl('/');
     } catch (e) {
       this.ui.error(toApiError(e).message);
     }
-    this.menuPicker.set(true);
+  }
+
+  // ---- 追加 ----
+  private touch(): void {
+    this.rev += 1;
+    this.dirty.set(true);
+    if (this.saveState() === 'error' || this.saveState() === 'saved') this.saveState.set('idle');
+  }
+
+  protected setMemo(v: string): void {
+    this.memo.set(v);
+    this.touch();
   }
 
   protected async addMenu(m: MenuSummary): Promise<void> {
@@ -272,7 +434,10 @@ export class RecordPage implements OnInit {
 
   private async addMenuById(id: number): Promise<void> {
     const d = await this.makeMenuDraft(id, 'SERVING', 1, 0);
-    if (d) this.items.update((l) => [...l, d]);
+    if (d) {
+      this.items.update((l) => [...l, d]);
+      this.touch();
+    }
   }
 
   protected async addFood(f: FoodSummary): Promise<void> {
@@ -290,6 +455,7 @@ export class RecordPage implements OnInit {
         d.value = 1;
       }
       this.items.update((l) => [...l, d]);
+      this.touch();
     }
   }
 
@@ -325,6 +491,7 @@ export class RecordPage implements OnInit {
 
   protected remove(key: number): void {
     this.items.update((l) => l.filter((d) => d.key !== key));
+    this.touch();
   }
 
   // ---- 入力 ----
@@ -347,18 +514,23 @@ export class RecordPage implements OnInit {
     return d.mode === 'SERVING' ? '杯' : d.mode === 'RATIO' ? '%' : 'g';
   }
 
+  protected unitOptions(d: Draft): ChipOption[] {
+    return [{ value: null, label: 'g' }, ...d.units.map((u) => ({ value: u.id, label: u.unitName }))];
+  }
+
   protected setValue(key: number, raw: string): void {
     const n = raw === '' ? 0 : Number(raw);
     const d = this.items().find((x) => x.key === key);
     this.patch(key, { value: d && d.kind === 'menu' && d.mode === 'RATIO' ? n / 100 : n });
   }
 
-  protected setUnit(key: number, raw: string): void {
-    this.patch(key, raw === '' ? { unitId: null, mode: 'GRAM' } : { unitId: Number(raw), mode: 'UNIT' });
+  protected setUnit(key: number, v: ChipValue): void {
+    this.patch(key, v === null ? { unitId: null, mode: 'GRAM' } : { unitId: Number(v), mode: 'UNIT' });
   }
 
   private patch(key: number, p: Partial<Draft>): void {
     this.items.update((l) => l.map((d) => (d.key === key ? { ...d, ...p } : d)));
+    this.touch();
   }
 
   // ---- 概算（確定値はサーバーが計算する。docs/03.栄養計算仕様.md） ----
@@ -400,41 +572,5 @@ export class RecordPage implements OnInit {
     if (d.kind !== 'menu') return 0;
     const total = 1 - d.baseRemaining + this.ratioOf(d);
     return total > 1.0000001 ? Math.round(total * 100) : 0;
-  }
-
-  // ---- 保存 ----
-  protected async save(): Promise<void> {
-    this.errs.set({});
-    const input: MealRecordInput = {
-      eatenOn: this.eatenOn(), mealType: this.mealType(), memo: this.memo().trim() || null,
-      items: this.items().map((d) =>
-        d.kind === 'menu'
-          ? { menuId: d.id, inputMode: d.mode, inputValue: d.value }
-          : { foodId: d.id, unitId: d.unitId, inputMode: d.unitId === null ? ('GRAM' as const) : ('UNIT' as const), inputValue: d.value },
-      ),
-    };
-    this.saving.set(true);
-    try {
-      const saved = this.editId() ? await this.recApi.update(this.editId() as number, input) : await this.recApi.create(input);
-      const w = saved.warnings[0];
-      this.ui.toast(w ? `保存しました。${w.message}` : '記録を保存しました', w ? 'info' : 'success');
-      await this.router.navigateByUrl('/');
-    } catch (e) {
-      this.errs.set(fieldErrors(e));
-      this.ui.error(toApiError(e).message);
-    } finally {
-      this.saving.set(false);
-    }
-  }
-
-  protected async removeRecord(): Promise<void> {
-    if (!(await this.ui.confirm({ title: '記録を削除', message: 'この食事の記録を削除します。よろしいですか？', okLabel: '削除する', danger: true }))) return;
-    try {
-      await this.recApi.remove(this.editId() as number);
-      this.ui.toast('記録を削除しました');
-      await this.router.navigateByUrl('/');
-    } catch (e) {
-      this.ui.error(toApiError(e).message);
-    }
   }
 }

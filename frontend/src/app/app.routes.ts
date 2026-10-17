@@ -1,12 +1,13 @@
 import { Routes } from '@angular/router';
 import { profileGuard } from './services/profile.service';
+import { recordLeaveGuard } from './pages/record-leave.guard';
 
 // 画面 ID は docs/08.画面設計.md に対応（SCR-01〜08）。
 export const routes: Routes = [
   { path: '', canActivate: [profileGuard], loadComponent: () => import('./pages/home.page').then((m) => m.HomePage) }, // SCR-02
   { path: 'profile', loadComponent: () => import('./pages/profile.page').then((m) => m.ProfilePage) }, // SCR-01
-  { path: 'record', canActivate: [profileGuard], loadComponent: () => import('./pages/record.page').then((m) => m.RecordPage) }, // SCR-03
-  { path: 'record/:id', canActivate: [profileGuard], loadComponent: () => import('./pages/record.page').then((m) => m.RecordPage) }, // SCR-03（編集）
+  { path: 'record', canActivate: [profileGuard], canDeactivate: [recordLeaveGuard], loadComponent: () => import('./pages/record.page').then((m) => m.RecordPage) }, // SCR-03
+  { path: 'record/:id', canActivate: [profileGuard], canDeactivate: [recordLeaveGuard], loadComponent: () => import('./pages/record.page').then((m) => m.RecordPage) }, // SCR-03（編集）
   { path: 'menus', canActivate: [profileGuard], loadComponent: () => import('./pages/menus.page').then((m) => m.MenusPage) }, // SCR-04
   { path: 'menus/new', canActivate: [profileGuard], loadComponent: () => import('./pages/menu-wizard.page').then((m) => m.MenuWizardPage) }, // SCR-05
   { path: 'menus/:id/edit', canActivate: [profileGuard], loadComponent: () => import('./pages/menu-wizard.page').then((m) => m.MenuWizardPage) }, // SCR-05

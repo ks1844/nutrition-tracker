@@ -14,6 +14,7 @@ import { FoodSearchDialog } from '../components/food-search-dialog';
 import { Disclaimer } from '../components/disclaimer';
 import { EmptyState } from '../components/empty-state';
 import { Icon } from '../components/icon';
+import { ChipGroup, ChipOption, ChipValue } from '../components/chip-group';
 
 interface Row {
   key: number;
@@ -29,7 +30,7 @@ const PREVIEW_CODES = ['ENERGY', 'PROT', 'FAT', 'CHO', 'VITC', 'VITA_RAE'];
 
 @Component({
   selector: 'app-menu-wizard-page',
-  imports: [PageHeader, FoodSearchDialog, Disclaimer, EmptyState, Icon],
+  imports: [PageHeader, FoodSearchDialog, Disclaimer, EmptyState, Icon, ChipGroup],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <app-page-header [title]="editId() ? 'メニューを編集' : 'メニューを作る'" [back]="['/menus']" />
@@ -104,11 +105,10 @@ const PREVIEW_CODES = ['ENERGY', 'PROT', 'FAT', 'CHO', 'VITC', 'VITA_RAE'];
             <div class="mt-2 flex items-center gap-2">
               <input class="field tabnum !w-28" type="number" inputmode="decimal" min="0" step="any" [value]="r.quantity || ''" (input)="patchRow(r.key, { quantity: num($event) })"
                      [attr.aria-label]="r.name + 'の数量'" [attr.aria-invalid]="!!errs()['items[' + i + '].quantity']" />
-              <select class="field !w-auto" (change)="setUnit(r.key, $any($event.target).value)" aria-label="単位">
-                <option value="" [selected]="r.unitId === null">g</option>
-                @for (u of r.units; track u.id) { <option [value]="u.id" [selected]="r.unitId === u.id">{{ u.unitName }}</option> }
-              </select>
               <span class="muted tabnum ml-auto text-[0.8rem] font-bold">= {{ gramsOf(i) }}</span>
+            </div>
+            <div class="mt-2">
+              <app-chip-group [options]="unitOptions(r)" [value]="r.unitId" [label]="r.name + 'の単位'" (changed)="setUnit(r.key, $event)" />
             </div>
             @if (errs()['items[' + i + '].quantity']) { <p class="field-error">{{ errs()['items[' + i + '].quantity'] }}</p> }
           </article>
@@ -167,10 +167,8 @@ const PREVIEW_CODES = ['ENERGY', 'PROT', 'FAT', 'CHO', 'VITC', 'VITA_RAE'];
             @if (errs()['servings']) { <p class="field-error">{{ errs()['servings'] }}</p> }
           </div>
           <div>
-            <label class="field-label" for="mw-label">呼び方</label>
-            <select id="mw-label" class="field" (change)="label.set($any($event.target).value)">
-              @for (l of labels; track l) { <option [value]="l" [selected]="label() === l">{{ l }}</option> }
-            </select>
+            <span class="field-label">呼び方</span>
+            <app-chip-group [options]="labelOptions" [value]="label()" label="1杯の呼び方" (changed)="label.set('' + $event)" />
           </div>
         </div>
         <div class="glass-inset flex items-baseline justify-between px-4 py-3">
@@ -227,7 +225,7 @@ export class MenuWizardPage implements OnInit {
   private readonly catalog = inject(NutrientCatalog);
 
   protected readonly steps = STEPS;
-  protected readonly labels = ['お椀', '皿', '個', '食'];
+  protected readonly labelOptions: ChipOption[] = ['お椀', '皿', '個', '食'].map((l) => ({ value: l, label: l }));
   protected readonly fmtNum = fmtNum;
   protected readonly lossNote = COOKING_LOSS_NOTE;
 
@@ -375,8 +373,12 @@ export class MenuWizardPage implements OnInit {
     this.rows.update((l) => l.map((r) => (r.key === key ? { ...r, ...p } : r)));
   }
 
-  protected setUnit(key: number, raw: string): void {
-    this.patchRow(key, { unitId: raw === '' ? null : Number(raw) });
+  protected unitOptions(r: Row): ChipOption[] {
+    return [{ value: null, label: 'g' }, ...r.units.map((u) => ({ value: u.id, label: u.unitName }))];
+  }
+
+  protected setUnit(key: number, v: ChipValue): void {
+    this.patchRow(key, { unitId: v === null ? null : Number(v) });
   }
 
   // ---- 手順の移動 ----
