@@ -25,6 +25,30 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog)
         return await ToDetailAsync(menu.Id);
     }
 
+    /// <summary>API-06 メニュー一覧。論理削除されていないメニューを新しい順に、残量つきで返す。</summary>
+    public async Task<IReadOnlyList<MenuSummaryDto>> ListAsync()
+    {
+        var menus = await db.Menus.AsNoTracking()
+            .Where(m => m.UserId == User.FixedUserId && m.DeletedAt == null)
+            .OrderByDescending(m => m.Id)
+            .ToListAsync();
+        var ids = menus.Select(m => m.Id).ToList();
+        var recorded = await db.MealRecordItems.AsNoTracking()
+            .Where(i => i.MenuId != null && i.PortionRatio != null && ids.Contains(i.MenuId!.Value))
+            .GroupBy(i => i.MenuId!.Value)
+            .Select(g => new { MenuId = g.Key, Sum = g.Sum(i => i.PortionRatio!.Value) })
+            .ToDictionaryAsync(x => x.MenuId, x => x.Sum);
+
+        return menus.Select(m =>
+        {
+            var remaining = PortionCalculator.Remaining([recorded.GetValueOrDefault(m.Id)], m.Servings);
+            return new MenuSummaryDto(
+                m.Id, m.Name, m.CookedOn, m.CookedTotalWeightG, m.Servings, m.ServingLabel,
+                PortionCalculator.ServingWeightG(m.CookedTotalWeightG, m.Servings),
+                new RemainingDto(remaining.Ratio, remaining.Servings, remaining.IsOver));
+        }).ToList();
+    }
+
     /// <summary>API-08 メニュー詳細。論理削除済みは 404。</summary>
     public async Task<MenuDetailDto> GetAsync(long id)
     {

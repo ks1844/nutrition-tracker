@@ -8,6 +8,10 @@ namespace NutritionTracker.Api.Controllers;
 [Route("api/menus")]
 public class MenusController(MenuService menus) : ControllerBase
 {
+    /// <summary>API-06 メニュー一覧（残量つき）</summary>
+    [HttpGet]
+    public async Task<IReadOnlyList<MenuSummaryDto>> List() => await menus.ListAsync();
+
     /// <summary>API-07 メニュー作成</summary>
     [HttpPost]
     public async Task<IActionResult> Create([FromBody] MenuInput input)

@@ -228,4 +228,37 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.True(got.Remaining.IsOver);
         Assert.Equal(-0.25m, got.Remaining.Ratio);
     }
+
+    // ---- API-06 一覧 ----
+    [Fact]
+    public async Task List_ReturnsActiveMenus_NewestFirst_WithRemaining()
+    {
+        var g = await SeedAsync();
+        var first = (await (await PostAsync(Tonjiru(g, "豚汁"))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        var second = (await (await PostAsync(Tonjiru(g, "豚汁（薄味）"))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        var deleted = (await (await PostAsync(Tonjiru(g, "削除する汁"))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        await fixture.WithDbAsync(async db =>
+        {
+            (await db.Menus.SingleAsync(m => m.Id == deleted.Id)).DeletedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        });
+        await AddRecordedPortionAsync(first.Id, 0.1875m);
+        await AddRecordedPortionAsync(first.Id, 0.125m);
+
+        var list = (await fixture.Client.GetFromJsonAsync<List<MenuSummaryDto>>("/api/menus"))!;
+
+        Assert.Equal(["豚汁（薄味）", "豚汁"], list.Select(m => m.Name).ToList()); // 論理削除は出ない。新しい順
+        Assert.Equal(new RemainingDto(1.000000m, 8.00m, false), list[0].Remaining);
+        Assert.Equal(new RemainingDto(0.6875m, 5.5m, false), list[1].Remaining); // AC-MENU-008
+        Assert.Equal((300.0m, 8.0m, "お椀"), (list[1].ServingWeightG, list[1].Servings, list[1].ServingLabel));
+        Assert.Equal(second.Id, list[0].Id);
+    }
+
+    [Fact]
+    public async Task List_Empty_ReturnsEmptyArray()
+    {
+        var list = (await fixture.Client.GetFromJsonAsync<List<MenuSummaryDto>>("/api/menus"))!;
+
+        Assert.Empty(list);
+    }
 }
