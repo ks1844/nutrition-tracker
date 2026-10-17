@@ -64,6 +64,24 @@
 
 競合時は別ポートで逃げず、占有プロセスを止めて固定ポートで起動する。
 
+## バックエンド（C# / ASP.NET Core。`backend/`）
+
+```bash
+cd backend
+cp .env.example .env && $EDITOR .env   # 初回のみ。パスワードを決める（.env はコミットしない）
+docker compose up -d                   # MySQL 8.4（3306）
+dotnet tool restore                    # 初回のみ（dotnet-ef）
+# マイグレーションの適用（パスワードは .env の MYSQL_PASSWORD）
+ConnectionStrings__Default="Server=localhost;Port=3306;Database=nutritiontracker;User ID=nutrition;Password=<パスワード>" \
+  dotnet ef database update --project src/NutritionTracker.Api
+# 起動（http://localhost:8080 ・ GET /health）。パスワードは環境変数で渡す（設定ファイルに書かない）
+Database__Password=<パスワード> dotnet run --project src/NutritionTracker.Api
+dotnet test                            # Domain のテスト + API のテスト（Docker が必要。Testcontainers が MySQL を自動で起動する）
+```
+
+- アプリはマイグレーションを自動では適用しない。起動時に `src/NutritionTracker.Api/Master/` の CSV があれば取り込む（無ければスキップ）→ [Master/README.md](backend/src/NutritionTracker.Api/Master/README.md)。成分表の実データはコミットしない（`.gitignore` で除外）。
+- 係数・重み・閾値（スコア・目標）は `appsettings.json` の `Nutrition` に置く（すべて暫定）。
+
 ## フロントエンド（Angular。`frontend/`）
 
 ```bash
