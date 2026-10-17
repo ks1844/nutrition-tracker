@@ -6,17 +6,31 @@ using NutritionTracker.Api.Tests.Infrastructure;
 namespace NutritionTracker.Api.Tests.Dashboard;
 
 /// <summary>
-/// 直近 7 日ダッシュボード API（API-18、docs/09.API仕様.md §7）。窓は 2026-10-11〜2026-10-17。
-/// <b>目標値はテスト用の仮の値で、食事摂取基準の公式値ではない</b>。
+/// 直近 7 日ダッシュボード API（GET /api/dashboard/weekly、API-18、docs/09.API仕様.md §7）のテストです。窓は 2026-10-11〜2026-10-17。目標値はテスト用の仮の値で、食事摂取基準の公式値ではありません。
 /// </summary>
 [Collection(ApiCollection.Name)]
 public class WeeklyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(fixture)
 {
+    /// <summary>
+    /// 直近 7 日ダッシュボード API を呼びます。
+    /// </summary>
+    /// <param name="end">7 日間の最後の日（省略するとテスト中の今日）。</param>
+    /// <returns>直近 7 日のダッシュボード。</returns>
     private async Task<WeeklyDashboardDto> GetAsync(DateOnly? end = null) =>
         (await Fixture.Client.GetFromJsonAsync<WeeklyDashboardDto>($"/api/dashboard/weekly?endDate={(end ?? Day):yyyy-MM-dd}"))!;
 
+    /// <summary>
+    /// 平均の栄養素ごとの状態から、指定した栄養素を取り出します。
+    /// </summary>
+    /// <param name="d">直近 7 日のダッシュボード。</param>
+    /// <param name="code">栄養素コード。</param>
+    /// <returns>その栄養素の状態。</returns>
     private static NutrientStatusDto Row(WeeklyDashboardDto d, string code) => d.Averages.Nutrients.Single(n => n.Code == code);
 
+    /// <summary>
+    /// 平均が、記録のある日の合計を記録日数（7 日ではない）で割った値になることを確認します。4 日の記録のエネルギー平均は 1500 kcal、タンパク質は 55.0g で、同じ日の複数の記録は日合計として扱います（AC-SCORE-011）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_SCORE_011_Average_DividesByRecordDays_NotBySeven()
     {
@@ -35,6 +49,10 @@ public class WeeklyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(
         Assert.Equal(55.0m, d.Averages.Pfc!.ProteinG);
     }
 
+    /// <summary>
+    /// 推移が 7 件で、記録のない日は記録なし・kcal とスコアが null（0 にしない）、記録のある日はその日 1 日分のスコア（81、100）になり、窓の外の記録は含まれないことを確認します（AC-DASH-006）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_DASH_006_Series_HasSevenPoints_WithNullsForDaysWithoutRecords()
     {
@@ -57,6 +75,10 @@ public class WeeklyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(
         Assert.Equal(2, d.RecordDays);
     }
 
+    /// <summary>
+    /// 記録日が 2 日だとデータ不足でスコアが出ず（平均の摂取量は返る）、3 日になるとスコアが計算される（美肌 81）ことを確認します（AC-SCORE-005、AC-DASH-008）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_SCORE_005_TwoRecordDays_IsInsufficientData_ThreeDaysComputes()
     {
@@ -80,6 +102,10 @@ public class WeeklyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(
         Assert.Equal(new ScoreDto(81, "GOOD", false, false), three.Scores.Beauty);
     }
 
+    /// <summary>
+    /// 筋肉スコアが、平均の摂取量と、窓内の朝昼夕すべての食事に対する分配率（3 食のうち 2 食でタンパク質 20g 以上）から計算される（48、不足気味）ことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Muscle_UsesAverageIntake_AndDistributionAcrossWholeWindow()
     {
@@ -96,6 +122,10 @@ public class WeeklyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(
         Assert.Equal("LOW", d.Scores.Muscle.Band);
     }
 
+    /// <summary>
+    /// 期間内に上限（UL）を超えた日数が数えられ（亜鉛 40・10・50・35 のうち 2 日。ちょうど UL は超過ではない）、平均値の状態は平均が UL 以内なら ACHIEVED のままであることを確認します（AC-SCORE-006）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_SCORE_006_CountsUlExceededDays_AndKeepsAverageStatus()
     {
@@ -114,6 +144,10 @@ public class WeeklyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(
         Assert.Equal(0, Row(d, "VITC").UlExceededDays); // UL の無い栄養素は 0
     }
 
+    /// <summary>
+    /// 窓内のどれか 1 日でも未測定を含む栄養素は、印がつき、通知に載ることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task IncompleteNutrient_AnyDayInWindow_IsNoticed()
     {
@@ -127,6 +161,10 @@ public class WeeklyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(
         Assert.Equal(["VITC"], Assert.Single(d.Notices).NutrientCodes);
     }
 
+    /// <summary>
+    /// 記録が 1 日もないとき、平均は空（エネルギー・PFC は null、栄養素は空）、推移は 7 件とも記録なし、スコアはデータ不足になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task NoRecords_ReturnsEmptyAverages_AndInsufficientData()
     {
@@ -144,6 +182,10 @@ public class WeeklyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(
         Assert.Empty(d.Notices);
     }
 
+    /// <summary>
+    /// 終了日を過去にすると、窓がずれ（開始日は 6 日前）、その窓の記録だけが集計されることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task EndDate_InThePast_ShiftsTheWindow()
     {
@@ -156,6 +198,10 @@ public class WeeklyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(
         Assert.Equal(1200, d.Averages.Energy!.IntakeKcal);
     }
 
+    /// <summary>
+    /// プロフィール未登録は 404、終了日がない・未来日は 400、今日までは 200 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task InvalidRequests_Return400Or404()
     {

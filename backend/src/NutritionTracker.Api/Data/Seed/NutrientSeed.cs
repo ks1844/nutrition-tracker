@@ -3,12 +3,19 @@ using NutritionTracker.Domain.Nutrition;
 
 namespace NutritionTracker.Api.Data.Seed;
 
-/// <summary>T栄養素の初期データ（docs/04.データモデル.md §5 が正本。単位・区分は成分表の原典と照合する: 要確認）。</summary>
+/// <summary>
+/// 栄養素マスタ（T栄養素）の初期データ 24 種です（docs/04.データモデル.md §5 が正本。単位・区分は成分表の原典との照合が必要）。
+/// </summary>
 internal static class NutrientSeed
 {
-    /// <summary>初期データの作成日時（固定。再生成しても差分が出ないようにする）。</summary>
+    /// <summary>
+    /// 初期データの作成・更新日時（固定値）。マイグレーションを作り直しても差分が出ないようにします。
+    /// </summary>
     public static readonly DateTime SeededAt = new(2026, 10, 17, 0, 0, 0, DateTimeKind.Unspecified);
 
+    /// <summary>
+    /// 栄養素ごとのコード・名前・単位・区分。表示順はこの並びです。
+    /// </summary>
     private static readonly (string Code, string Name, string Unit, string Category)[] Rows =
     [
         (NutrientCodes.Energy, "エネルギー", "kcal", "macro"),
@@ -37,6 +44,10 @@ internal static class NutrientSeed
         (NutrientCodes.Astaxanthin, "アスタキサンチン", "mg", "antioxidant"),
     ];
 
+    /// <summary>
+    /// 初期データとして登録する栄養素 24 件を返します（ID と表示順は並びの順。アスタキサンチンだけ参考値）。
+    /// </summary>
+    /// <returns>栄養素の初期データ。</returns>
     public static IReadOnlyList<Nutrient> All() => Rows
         .Select((r, i) => new Nutrient
         {

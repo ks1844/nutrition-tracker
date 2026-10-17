@@ -4,8 +4,15 @@ using NutritionTracker.Api.Entities;
 
 namespace NutritionTracker.Api.Data.Configurations;
 
+/// <summary>
+/// 「Tメニュー食材」テーブルの列名・型・制約・索引・外部キーの対応づけです（docs/05.テーブル定義書.md）。
+/// </summary>
 internal class MenuItemConfiguration : IEntityTypeConfiguration<MenuItem>
 {
+    /// <summary>
+    /// 「Tメニュー食材」テーブルの定義（日本語の列名、型、NOT NULL、CHECK 制約、索引、外部キー、監査列）を設定します。
+    /// </summary>
+    /// <param name="b">テーブルの設定ビルダー。</param>
     public void Configure(EntityTypeBuilder<MenuItem> b)
     {
         b.ToTable("Tメニュー食材", t =>

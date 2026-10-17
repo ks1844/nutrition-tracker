@@ -6,15 +6,27 @@ using NutritionTracker.Api.Exceptions;
 
 namespace NutritionTracker.Api.Services;
 
+/// <summary>
+/// 最近記録に使ったメニュー・食材を調べるサービスです。
+/// </summary>
 public class RecentItemService(AppDbContext db)
 {
+    /// <summary>
+    /// 返す件数の既定値（10 件）。
+    /// </summary>
     private const int DefaultLimit = 10;
+    /// <summary>
+    /// 返せる件数の上限（30 件）。
+    /// </summary>
     private const int MaxLimit = 30;
 
     /// <summary>
-    /// API-20 最近使った食材・メニュー。直近の記録から重複を除き、使った日の新しい順に返す（メニュー・食材それぞれ <c>limit</c> 件まで）。
-    /// 論理削除されたメニューと無効な食材は除く。
+    /// 最近記録に使ったメニューと食材を返します（API-20）。
+    /// 食事日の新しい順に記録を読み、同じメニュー・食材は最初の 1 件だけに絞ります（最後に使ったときの入力方式・入力値つき）。
+    /// 削除済みのメニューと無効な食材は除きます。
     /// </summary>
+    /// <param name="limit">メニュー・食材それぞれの最大件数（既定 10、最大 30。1 未満は 400）。</param>
+    /// <returns>最近使ったメニューと食材。</returns>
     public async Task<RecentItemsDto> GetAsync(int? limit)
     {
         if (limit is < 1)

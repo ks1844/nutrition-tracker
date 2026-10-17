@@ -5,9 +5,15 @@ using Microsoft.Extensions.Configuration;
 
 namespace NutritionTracker.Api.Tests;
 
-/// <summary>ヘルスチェック（docs/09.API仕様.md §1）。DB を使わない。</summary>
+/// <summary>
+/// ヘルスチェックのテストです（docs/09.API仕様.md §1）。データベースは使いません。
+/// </summary>
 public class HealthTests(WebApplicationFactory<Program> factory) : IClassFixture<WebApplicationFactory<Program>>
 {
+    /// <summary>
+    /// GET /health が 200 で {"status":"ok"} を返すことを確認します（アプリが起動しているかを見るための入口）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task GetHealth_ReturnsOk()
     {

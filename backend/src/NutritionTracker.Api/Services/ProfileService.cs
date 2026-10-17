@@ -10,12 +10,27 @@ using NutritionTracker.Domain.Scoring;
 
 namespace NutritionTracker.Api.Services;
 
+/// <summary>
+/// プロフィールの取得・保存と、目標（エネルギー・タンパク質・栄養目標）の算出を行うサービスです。
+/// </summary>
+/// <param name="db">データベースへの窓口。</param>
+/// <param name="clock">今日の日付。</param>
+/// <param name="options">係数などの設定。</param>
 public class ProfileService(AppDbContext db, AppClock clock, IOptions<NutritionOptions> options)
 {
+    /// <summary>
+    /// 受け付ける性別。
+    /// </summary>
     private static readonly string[] Sexes = ["male", "female"];
+    /// <summary>
+    /// 受け付ける目的。
+    /// </summary>
     private static readonly string[] Goals = ["skin", "muscle", "both"];
 
-    /// <summary>API-04 プロフィール取得。未登録は 404（画面はプロフィール設定へ誘導する）。</summary>
+    /// <summary>
+    /// プロフィールと算出した目標を返します（API-04）。
+    /// </summary>
+    /// <returns>プロフィールと目標。未登録なら 404（画面はプロフィール設定へ案内します）。</returns>
     public async Task<ProfileDto> GetAsync()
     {
         var profile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == User.FixedUserId)
@@ -23,7 +38,11 @@ public class ProfileService(AppDbContext db, AppClock clock, IOptions<NutritionO
         return await ToDtoAsync(profile);
     }
 
-    /// <summary>API-05 プロフィール登録・更新（upsert）。</summary>
+    /// <summary>
+    /// プロフィールを登録・更新します（API-05）。なければ作り、あれば上書きします。身長・体重は小数 1 桁に丸めます。
+    /// </summary>
+    /// <param name="input">入力内容（検証して、問題があれば項目別の 400 エラー）。</param>
+    /// <returns>保存したプロフィールと算出した目標。</returns>
     public async Task<ProfileDto> SaveAsync(ProfileInput input)
     {
         Validate(input);
@@ -44,12 +63,20 @@ public class ProfileService(AppDbContext db, AppClock clock, IOptions<NutritionO
         return await ToDtoAsync(profile);
     }
 
-    /// <summary>プロフィール未登録なら 404（ダッシュボードなど、目標が必要な API が使う）。</summary>
+    /// <summary>
+    /// プロフィールを返します。目標が必要な処理（ダッシュボードなど）が使います。
+    /// </summary>
+    /// <returns>プロフィール。未登録なら 404。</returns>
     public async Task<UserProfile> RequireAsync() =>
         await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == User.FixedUserId)
         ?? throw new NotFoundException("プロフィールが未登録です");
 
-    /// <summary>エネルギー・タンパク質の目標（上書きがあれば優先）。年齢は <paramref name="on"/>（省略時は今日）時点の満年齢。</summary>
+    /// <summary>
+    /// エネルギー目標（自動算出と実際に使う値）とタンパク質目標を計算します。
+    /// </summary>
+    /// <param name="p">プロフィール。</param>
+    /// <param name="on">年齢を求める日（省略すると今日）。</param>
+    /// <returns>自動算出のエネルギー（kcal）、実際に使うエネルギー（kcal。手入力があればそれ）、タンパク質（g）。</returns>
     public (int AutoKcal, int EffectiveKcal, decimal ProteinG) ComputeTargets(UserProfile p, DateOnly? on = null)
     {
         var settings = options.Value.Targets.ToSettings();
@@ -60,6 +87,11 @@ public class ProfileService(AppDbContext db, AppClock clock, IOptions<NutritionO
         return (auto, TargetCalculator.EffectiveEnergyKcal(auto, p.EnergyTargetKcal), TargetCalculator.ProteinG(p.WeightKg, goal, settings));
     }
 
+    /// <summary>
+    /// プロフィールを返却用の形に変換します。目標と、性別・年齢に合う栄養目標も付けます。
+    /// </summary>
+    /// <param name="p">プロフィール。</param>
+    /// <returns>プロフィールと目標。</returns>
     private async Task<ProfileDto> ToDtoAsync(UserProfile p)
     {
         var (auto, effective, proteinG) = ComputeTargets(p);
@@ -75,6 +107,10 @@ public class ProfileService(AppDbContext db, AppClock clock, IOptions<NutritionO
             new ProfileTargetsDto(new EnergyTargetDto(auto, p.EnergyTargetKcal, effective), proteinG, targets));
     }
 
+    /// <summary>
+    /// プロフィールの入力を検証します。性別・生年月日・身長・体重・活動レベル・目的・エネルギー目標の範囲を確かめ、問題があれば項目別の 400 エラーにします。
+    /// </summary>
+    /// <param name="i">入力内容。</param>
     private void Validate(ProfileInput i)
     {
         var errors = new List<ErrorDetail>();

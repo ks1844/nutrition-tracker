@@ -7,14 +7,26 @@ using NutritionTracker.Domain.Nutrition;
 
 namespace NutritionTracker.Api.Services;
 
+/// <summary>
+/// ある栄養素を、どのメニュー・食材から摂ったかを集計するサービスです。
+/// </summary>
+/// <param name="db">データベースへの窓口。</param>
+/// <param name="catalog">栄養素の情報。</param>
 public class ContributionService(AppDbContext db, NutritionCatalog catalog)
 {
+    /// <summary>
+    /// 集計できる期間の最大日数（31 日）。
+    /// </summary>
     private const int MaxDays = 31;
 
     /// <summary>
-    /// API-19 栄養素の寄与食材。期間内の記録を、保存済みスナップショットからメニュー・単品食材ごとに集計し、寄与の大きい順に返す。
-    /// メニューの <c>children</c> は、メニューの<b>現在の構成</b>で按分した参考値（記録後にメニューを編集していると実際とずれうる。暫定）。
+    /// 期間内の記録について、栄養素の摂取量をメニュー・単品の食材ごとに集計します（API-19）。
+    /// 記録時に保存した栄養量を足し合わせ、量の大きい順に並べます。メニューには、いまの構成を元に食べた割合で按分した食材の内訳（参考値）を付けます。
     /// </summary>
+    /// <param name="code">栄養素コード（存在しなければ 404）。</param>
+    /// <param name="from">期間の開始日（必須）。</param>
+    /// <param name="to">期間の終了日（必須。開始日以降で、期間は最大 31 日）。</param>
+    /// <returns>期間の総量、未測定を含むか、寄与した項目の一覧。</returns>
     public async Task<ContributionsDto> GetAsync(string code, DateOnly? from, DateOnly? to)
     {
         var nutrient = (await catalog.NutrientsAsync()).FirstOrDefault(n => n.Code == code)

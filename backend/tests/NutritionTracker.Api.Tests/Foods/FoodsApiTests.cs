@@ -5,14 +5,29 @@ using NutritionTracker.Api.Tests.Infrastructure;
 
 namespace NutritionTracker.Api.Tests.Foods;
 
-/// <summary>API-01 食材検索 / API-02 食材詳細（docs/09.API仕様.md §3）。</summary>
+/// <summary>
+/// 食材検索（GET /api/foods、API-01）と食材詳細（GET /api/foods/{id}、API-02）のテストです（docs/09.API仕様.md §3）。
+/// </summary>
 [Collection(ApiCollection.Name)]
 public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
 {
+    /// <summary>
+    /// 各テストの前に、データを初期状態に戻します。
+    /// </summary>
+    /// <returns>完了を表すタスク。</returns>
     public Task InitializeAsync() => fixture.ResetAsync();
 
+    /// <summary>
+    /// 各テストの後の片づけはありません。
+    /// </summary>
+    /// <returns>完了済みのタスク。</returns>
     public Task DisposeAsync() => Task.CompletedTask;
 
+    /// <summary>
+    /// 検索 API を呼び、200 で返ることを確かめて結果を返します。
+    /// </summary>
+    /// <param name="q">検索語。</param>
+    /// <returns>検索結果。</returns>
     private async Task<FoodSearchResultDto> SearchAsync(string q)
     {
         var res = await fixture.Client.GetAsync($"/api/foods?q={Uri.EscapeDataString(q)}");
@@ -20,6 +35,11 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         return (await res.Content.ReadFromJsonAsync<FoodSearchResultDto>())!;
     }
 
+    /// <summary>
+    /// ひらがな・カタカナ・半角カナ・別名（漢字）のどの書き方で検索しても、同じ食材（にんじん）が 1 件だけ見つかり、換算単位（本・150g・既定）も返ることを確認します（AC-FOOD-001、002）。
+    /// </summary>
+    /// <param name="q">検索語。</param>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Theory]
     [InlineData("にんじん")]
     [InlineData("ニンジン")] // AC-FOOD-001: ひらがな⇔カタカナ
@@ -41,6 +61,10 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(("本", 150m, true), (unit.UnitName, unit.GramsPerUnit, unit.IsDefault));
     }
 
+    /// <summary>
+    /// 名前の一部だけ一致する食材より、前方一致する食材が先に並ぶことを確認します（「にんじんジュース」が「ミニにんじん」より先。AC-FOOD-003）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_FOOD_003_Search_PartialMatch_PutsPrefixMatchFirst()
     {
@@ -55,6 +79,10 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(["にんじんジュース", "ミニにんじん"], result.Items.Select(i => i.Name).ToList());
     }
 
+    /// <summary>
+    /// 無効な食材は検索結果に出ないことを確認します（AC-FOOD-005）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_FOOD_005_Search_ExcludesInactiveFoods()
     {
@@ -69,6 +97,10 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(["にんじん"], result.Items.Select(i => i.Name).ToList());
     }
 
+    /// <summary>
+    /// 検索語の「%」「_」が LIKE のワイルドカードとして働かず、そのままの文字として探されることを確認します（どの食材にもヒットしません）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Search_SpecialCharactersAreNotTreatedAsWildcards()
     {
@@ -78,6 +110,10 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(0, (await SearchAsync("_")).Total);
     }
 
+    /// <summary>
+    /// limit と offset でページ分けできることを確認します。5 件のうち 3 件目から 2 件を返し、総件数は 5 件のままです。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Search_PagesWithLimitAndOffset()
     {
@@ -96,6 +132,12 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(2, page.Items.Count);
     }
 
+    /// <summary>
+    /// 不正なパラメータ（検索語がない、空白だけ、limit が 0、offset が負）が 400 になり、問題の項目名が details に入ることを確認します。
+    /// </summary>
+    /// <param name="url">呼び出す URL。</param>
+    /// <param name="field">エラーになる項目名。</param>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Theory]
     [InlineData("/api/foods", "q")] // q が無い
     [InlineData("/api/foods?q=%20%20", "q")] // 空白のみ
@@ -111,6 +153,10 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(field, err.Details.Single().Field);
     }
 
+    /// <summary>
+    /// 51 文字の検索語（上限は 50 文字）が 400 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Search_TooLongQuery_Returns400()
     {
@@ -119,6 +165,10 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
 
+    /// <summary>
+    /// 食材詳細で、未測定の栄養素の含有量が null（0 ではない）で返ることを確認します。みそのビタミン C は null、ビタミン A は測定済みの 0 です。出典・別名・単位も返り、栄養素は表示順に並びます（AC-FOOD-004）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_FOOD_004_Detail_ReturnsNullForUnmeasuredNutrient()
     {
@@ -140,6 +190,10 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(["PROT", "VITA_RAE", "VITC"], food.Nutrients.Select(n => n.Code).ToList()); // 表示順
     }
 
+    /// <summary>
+    /// 無効な食材でも、詳細は取得できる（isActive が false）ことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Detail_InactiveFood_CanStillBeFetched()
     {
@@ -151,6 +205,10 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.False(food.IsActive);
     }
 
+    /// <summary>
+    /// 存在しない食材の詳細が 404 の NOT_FOUND になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Detail_UnknownId_Returns404()
     {

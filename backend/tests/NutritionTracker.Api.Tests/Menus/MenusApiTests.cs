@@ -6,15 +6,30 @@ using NutritionTracker.Api.Tests.Infrastructure;
 
 namespace NutritionTracker.Api.Tests.Menus;
 
-/// <summary>メニュー API（API-06〜API-12、docs/09.API仕様.md §5）。食材・数値は docs/03.栄養計算仕様.md §9 の正解データ（テスト用ダミー値）。</summary>
+/// <summary>
+/// メニュー API（API-06〜API-12、docs/09.API仕様.md §5）のテストです。食材と数値は docs/03.栄養計算仕様.md §9 の正解データ（テスト用のダミー値）です。
+/// </summary>
 [Collection(ApiCollection.Name)]
 public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
 {
+    /// <summary>
+    /// 各テストの前に、データを初期状態に戻します。
+    /// </summary>
+    /// <returns>完了を表すタスク。</returns>
     public Task InitializeAsync() => fixture.ResetAsync();
 
+    /// <summary>
+    /// 各テストの後の片づけはありません。
+    /// </summary>
+    /// <returns>完了済みのタスク。</returns>
     public Task DisposeAsync() => Task.CompletedTask;
 
-    /// <summary>『豚汁』: にんじん 2 本、豚こま肉 400g、みそ 大さじ 4。完成後重量 2400g、8 杯分（お椀）</summary>
+    /// <summary>
+    /// メニュー「豚汁」の入力を作ります（にんじん 2 本・豚こま肉 400g・みそ大さじ 4。完成後 2400g、8 杯分、お椀）。
+    /// </summary>
+    /// <param name="g">正解データの 3 食材。</param>
+    /// <param name="name">メニューの名前。</param>
+    /// <returns>メニューの入力。</returns>
     private static MenuInput Tonjiru(TestData.Golden g, string name = "豚汁") => new(
         name, new DateOnly(2026, 10, 14), null, 2400m, 8m, "お椀",
         [
@@ -23,6 +38,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
             new MenuItemInput(g.Miso.Id, g.MisoUnitId, 4m),
         ]);
 
+    /// <summary>
+    /// 正解データの 3 食材をデータベースに登録します。
+    /// </summary>
+    /// <returns>登録した 3 食材。</returns>
     private async Task<TestData.Golden> SeedAsync()
     {
         TestData.Golden? golden = null;
@@ -30,11 +49,26 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         return golden!;
     }
 
+    /// <summary>
+    /// メニュー作成 API を呼びます。
+    /// </summary>
+    /// <param name="input">メニューの入力。</param>
+    /// <returns>API の応答。</returns>
     private async Task<HttpResponseMessage> PostAsync(MenuInput input) => await fixture.Client.PostAsJsonAsync("/api/menus", input);
 
+    /// <summary>
+    /// メニュー全体の栄養量から、指定した栄養素を取り出します。
+    /// </summary>
+    /// <param name="m">メニューの詳細。</param>
+    /// <param name="code">栄養素コード。</param>
+    /// <returns>その栄養素の量。</returns>
     private static NutrientAmountDto Nutrient(MenuDetailDto m, string code) => m.Nutrients.Single(n => n.Code == code);
 
     // ---- API-07 作成 ----
+    /// <summary>
+    /// メニューを作ると、単位入力が重さに換算され（にんじん 2 本 = 300g、みそ大さじ 4 = 72g）、メニュー全体の栄養量が返ることを確認します。タンパク質 91.34g、ビタミン A 1930μg、ビタミン C 31mg（みそが未測定のため未測定の印あり）です（AC-MENU-001、AC-CALC-004、008）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_MENU_001_Create_ConvertsUnitsToGrams_AndReturnsTotals()
     {
@@ -54,6 +88,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(new NutrientAmountDto("VITA_RAE", 1930m, false), Nutrient(m, "VITA_RAE"));
     }
 
+    /// <summary>
+    /// 1 杯の重さ（2400g ÷ 8 杯 = 300g）と 1 杯あたりの栄養量（タンパク質 11.4175g）が返り、記録がないので残りは全量（8 杯）であることを確認します（AC-MENU-004、AC-CALC-005）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_MENU_004_Create_ReturnsServingWeightAndPerServingNutrients()
     {
@@ -67,6 +105,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(new RemainingDto(1.000000m, 8.00m, false), m.Remaining); // 記録がなければ全量が残っている
     }
 
+    /// <summary>
+    /// g で入力した食材は、数量と重さが同じ値（400g）でデータベースに保存され、メニュー食材が 3 行できることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Create_GramInput_IsStoredAsEnteredAmount()
     {
@@ -81,6 +123,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal((400m, 400m), (stored[1].Quantity, stored[1].AmountG)); // g 入力は数量 = 重量
     }
 
+    /// <summary>
+    /// 1 杯の呼び方を省略すると「お椀」になり、完成後の重さと杯数が小数 1 桁に四捨五入される（2400.05 → 2400.1、8.04 → 8.0）ことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Create_Defaults_ServingLabel_AndRoundsInputs()
     {
@@ -94,6 +140,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(8.0m, m.Servings);
     }
 
+    /// <summary>
+    /// 名前が空白、重さと杯数が 0、1 杯の呼び方が長すぎる、食材が 0 件のとき、項目別の 400 になり、メニューは保存されないことを確認します（AC-MENU-009）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_MENU_009_Create_InvalidInput_Returns400WithFieldDetails()
     {
@@ -106,6 +156,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(0, await fixture.WithDbAsync(db => db.Menus.CountAsync())); // 保存されない
     }
 
+    /// <summary>
+    /// 必須の項目（名前・完成後の重さ・杯数・食材）がすべて抜けているとき、それぞれが 400 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Create_MissingFields_Returns400()
     {
@@ -116,6 +170,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(["name", "cookedTotalWeightG", "servings", "items"], fields);
     }
 
+    /// <summary>
+    /// 食材の不正（存在しない食材、数量が 0 以下、その食材にない単位）が、何番目の食材かを示す項目名（items[n].…）つきの 400 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Create_InvalidItems_Return400WithIndexedFields()
     {
@@ -137,6 +195,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(["items[0].foodId", "items[1].quantity", "items[2].unitId"], fields);
     }
 
+    /// <summary>
+    /// 無効な食材を使うと、409 の CONFLICT になり、details に理由コード FOOD_INACTIVE が入ることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Create_InactiveFood_Returns409WithReasonCode()
     {
@@ -157,6 +219,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     // ---- API-08 詳細 ----
+    /// <summary>
+    /// メニュー詳細（GET /api/menus/{id}）が、作成時の内容と同じ（名前・食材・栄養量）で返ることを確認します（API-08）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Get_ReturnsSameContentAsCreated()
     {
@@ -171,6 +237,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(("豚汁", new DateOnly(2026, 10, 14), 2400.0m, 8.0m), (got.Name, got.CookedOn, got.CookedTotalWeightG, got.Servings));
     }
 
+    /// <summary>
+    /// 存在しないメニュー、または削除済みのメニューの詳細が 404 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Get_UnknownOrDeletedMenu_Returns404()
     {
@@ -187,7 +257,12 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.GetAsync("/api/menus/999999")).StatusCode);
     }
 
-    /// <summary>メニューに対する食事記録（食べた割合）を直接 DB に作る。記録 API ができる前でも残量を確認できる。</summary>
+    /// <summary>
+    /// メニューを指定の割合だけ食べた記録を、データベースに直接作ります（残りの計算や、記録が残ることの確認に使います）。
+    /// </summary>
+    /// <param name="menuId">メニューの ID。</param>
+    /// <param name="ratio">食べた割合。</param>
+    /// <returns>完了を表すタスク。</returns>
     private async Task AddRecordedPortionAsync(long menuId, decimal ratio)
     {
         await fixture.WithDbAsync(async db =>
@@ -202,6 +277,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         });
     }
 
+    /// <summary>
+    /// 残りが「1 − 記録した割合の合計」になることを確認します。1.5 杯（0.1875）と 1 杯（0.125）を食べた豚汁は、残り 0.6875（5.5 杯分）です（AC-MENU-008、AC-CALC-013）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_MENU_008_Remaining_IsOneMinusRecordedRatios()
     {
@@ -215,6 +294,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(new RemainingDto(0.6875m, 5.5m, false), got.Remaining); // AC-CALC-013
     }
 
+    /// <summary>
+    /// 記録が合計 100% を超えると、残りが負になり、食べすぎの印（isOver）が立つことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Remaining_IsOver_WhenRecordedMoreThanWhole()
     {
@@ -230,6 +313,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     // ---- API-06 一覧 ----
+    /// <summary>
+    /// メニュー一覧（GET /api/menus）が、削除していないメニューだけを新しい順に、1 杯の重さと残りつきで返すことを確認します（API-06）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task List_ReturnsActiveMenus_NewestFirst_WithRemaining()
     {
@@ -254,6 +341,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(second.Id, list[0].Id);
     }
 
+    /// <summary>
+    /// メニューがないとき、一覧が空の配列で返ることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task List_Empty_ReturnsEmptyArray()
     {
@@ -263,8 +354,17 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     // ---- API-12 プレビュー ----
+    /// <summary>
+    /// メニュー プレビュー API を呼びます。
+    /// </summary>
+    /// <param name="input">メニューの入力。</param>
+    /// <returns>API の応答。</returns>
     private async Task<HttpResponseMessage> PreviewAsync(MenuInput input) => await fixture.Client.PostAsJsonAsync("/api/menus/preview", input);
 
+    /// <summary>
+    /// プレビュー（POST /api/menus/preview）が、保存せずに合計の栄養量（作成時と同じ値）と 1 杯あたりの栄養量を返し、データベースにメニューが作られないことを確認します（API-12、AC-MENU-002）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_MENU_002_Preview_ReturnsTotals_WithoutWritingToDb()
     {
@@ -284,6 +384,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(0, await fixture.WithDbAsync(db => db.MenuItems.CountAsync()));
     }
 
+    /// <summary>
+    /// プレビューが食材ごとの重さ・可食部の重さ・栄養量を返すことを確認します。にんじんは 300g、可食部 270g（廃棄率 10%）、タンパク質 2.7g です。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Preview_ReturnsPerItemAmountEdibleAndNutrients()
     {
@@ -297,6 +401,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(2.7m, p.Items[0].Nutrients.Single(n => n.Code == "PROT").Amount);
     }
 
+    /// <summary>
+    /// 名前・完成後の重さ・杯数を省略しても受け付けられ、1 杯の重さと 1 杯あたりの栄養量が null になる（全体の栄養量は返る）ことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Preview_WithoutCookedWeightAndServings_ReturnsNullPerServing()
     {
@@ -312,6 +420,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(91.34m, p.Nutrients.Single(n => n.Code == "PROT").Amount);
     }
 
+    /// <summary>
+    /// 無効な食材は、プレビューでは 409 にならず、警告（FOOD_INACTIVE）として返ることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Preview_InactiveFood_ReturnsWarningInsteadOf409()
     {
@@ -330,6 +442,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(("FOOD_INACTIVE", g.Pork.Id), (warning.Code, warning.FoodId));
     }
 
+    /// <summary>
+    /// プレビューでも、不正な入力（完成後の重さが 0、存在しない食材）は項目別の 400 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Preview_InvalidInput_Returns400()
     {
@@ -344,8 +460,18 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     // ---- API-09 更新 ----
+    /// <summary>
+    /// メニュー更新 API を呼びます。
+    /// </summary>
+    /// <param name="id">メニューの ID。</param>
+    /// <param name="input">更新後のメニューの入力。</param>
+    /// <returns>API の応答。</returns>
     private async Task<HttpResponseMessage> PutAsync(long id, MenuInput input) => await fixture.Client.PutAsJsonAsync($"/api/menus/{id}", input);
 
+    /// <summary>
+    /// メニューの更新（PUT /api/menus/{id}）が、名前・メモ・杯数・食材をすべて置き換え、栄養量と 1 杯の重さを計算し直すことを確認します。古い食材の行は消え、メニューの数は増えません（API-09）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Update_ReplacesAllFieldsAndItems_AndRecalculates()
     {
@@ -368,6 +494,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(1, await fixture.WithDbAsync(db => db.Menus.CountAsync()));
     }
 
+    /// <summary>
+    /// メニューを更新しても、すでにある記録の栄養量（スナップショット）が変わらず、記録も残ることを確認します（AC-MENU-005）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_MENU_005_Update_DoesNotChangeExistingRecordSnapshots()
     {
@@ -394,6 +524,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(1, await fixture.WithDbAsync(db => db.MealRecordItems.CountAsync(i => i.MenuId == created.Id))); // 記録は残る
     }
 
+    /// <summary>
+    /// 不正な入力での更新が項目別の 400 になり、元のメニューが変わらないことを確認します（AC-MENU-009）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_MENU_009_Update_InvalidInput_Returns400_AndKeepsOriginal()
     {
@@ -409,6 +543,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(("豚汁", 3), (current.Name, current.Items.Count)); // 変更されない
     }
 
+    /// <summary>
+    /// 無効な食材を含めて更新すると 409 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Update_InactiveFood_Returns409()
     {
@@ -425,6 +563,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
     }
 
+    /// <summary>
+    /// 存在しないメニュー、または削除済みのメニューの更新が 404 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Update_MissingOrDeletedMenu_Returns404()
     {
@@ -441,6 +583,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     // ---- API-10 削除 ----
+    /// <summary>
+    /// メニューの削除（DELETE /api/menus/{id}）が 204 で、論理削除（行は残り削除日時が入る）であり、一覧と詳細には出なくなり、記録済みの食事記録は残ることを確認します（API-10、AC-MENU-007）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_MENU_007_Delete_IsLogical_KeepsRecords_AndHidesMenu()
     {
@@ -461,6 +607,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(3, await fixture.WithDbAsync(db => db.MenuItems.CountAsync(i => i.MenuId == created.Id)));
     }
 
+    /// <summary>
+    /// 存在しないメニュー、または削除済みのメニューの削除が 404 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Delete_MissingOrAlreadyDeleted_Returns404()
     {
@@ -473,6 +623,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     // ---- API-11 複製 ----
+    /// <summary>
+    /// メニューの複製（POST /api/menus/{id}/duplicate）が、食材・完成後の重さ・杯数・メモを写した新しいメニュー（名前は「豚汁のコピー」、作った日は今日）を作り、記録は複製しないことを確認します（API-11、AC-MENU-006）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_MENU_006_Duplicate_CopiesMenuWithoutRecords()
     {
@@ -496,6 +650,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(1, await fixture.WithDbAsync(db => db.MealRecordItems.CountAsync())); // 元の記録はそのまま
     }
 
+    /// <summary>
+    /// 複製のときに名前と作った日を指定すると、それが使われる（名前の前後の空白は除く）ことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Duplicate_WithNameAndCookedOn_UsesThem()
     {
@@ -508,6 +666,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(("豚汁（来週）", new DateOnly(2026, 10, 24)), (copy.Name, copy.CookedOn));
     }
 
+    /// <summary>
+    /// 複製の名前が空白だと 400 になり、メニューが増えないことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Duplicate_BlankName_Returns400()
     {
@@ -520,6 +682,10 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(1, await fixture.WithDbAsync(db => db.Menus.CountAsync()));
     }
 
+    /// <summary>
+    /// 存在しないメニュー、または削除済みのメニューの複製が 404 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Duplicate_MissingOrDeletedMenu_Returns404()
     {

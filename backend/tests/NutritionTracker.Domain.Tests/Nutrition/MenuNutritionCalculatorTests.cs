@@ -2,9 +2,16 @@ using NutritionTracker.Domain.Nutrition;
 
 namespace NutritionTracker.Domain.Tests.Nutrition;
 
+/// <summary>
+/// メニュー全体の栄養量の計算のテストです（docs/03.栄養計算仕様.md §6）。
+/// </summary>
 public class MenuNutritionCalculatorTests
 {
-    /// <summary>メニュー『豚汁』: にんじん 2 本(=300g)、豚こま肉 400g、みそ 大さじ 4(=72g)</summary>
+    /// <summary>
+    /// メニュー「豚汁」の構成食材を作ります。
+    /// にんじん 2 本（300g）、豚こま肉 400g、みそ大さじ 4（72g）です。
+    /// </summary>
+    /// <returns>豚汁の構成食材（食材と重量）。</returns>
     public static IReadOnlyList<MenuLine> Tonjiru() =>
     [
         new(GoldenData.Carrot, UnitConverter.ToAmountG(2m, GoldenData.CarrotGramsPerUnit)),
@@ -12,6 +19,10 @@ public class MenuNutritionCalculatorTests
         new(GoldenData.Miso, UnitConverter.ToAmountG(4m, GoldenData.MisoGramsPerUnit)),
     ];
 
+    /// <summary>
+    /// メニューの栄養量が構成食材の合計になり、未測定の印が引き継がれることを確認します。
+    /// 豚汁はタンパク質 91.34g、ビタミン A 1930μg、ビタミン C 31mg（みそが未測定のため未測定の印あり）になります（AC-CALC-004）。
+    /// </summary>
     [Fact]
     public void AC_CALC_004_MenuTotal_SumsFoodsAndPropagatesIncomplete()
     {
@@ -22,6 +33,9 @@ public class MenuNutritionCalculatorTests
         Assert.Equal(new NutrientAmount(1930m, false), total[NutrientCodes.VitaminARae]);
     }
 
+    /// <summary>
+    /// 参考値の栄養素（アスタキサンチン）は、行のない食材があっても未測定の印が立たないことを確認します。
+    /// </summary>
     [Fact]
     public void ReferenceNutrient_WithoutRow_IsNotIncomplete()
     {

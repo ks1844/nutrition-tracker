@@ -4,11 +4,16 @@ using Microsoft.EntityFrameworkCore.Design;
 namespace NutritionTracker.Api.Data;
 
 /// <summary>
-/// <c>dotnet ef</c>（マイグレーションの作成）用。サーバーのバージョンを明示するので、DB に接続せずにマイグレーションを作れる。
-/// 接続先は環境変数 <c>ConnectionStrings__Default</c>（未設定なら既定のローカル接続）。
+/// dotnet ef（マイグレーションの作成・適用）が DbContext を作るための工場です。
+/// サーバーのバージョンを明示するので、データベースに接続せずにマイグレーションを作れます。接続先は環境変数 ConnectionStrings__Default（なければローカルの既定）です。
 /// </summary>
 public class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbContext>
 {
+    /// <summary>
+    /// dotnet ef 用の DbContext を作ります。
+    /// </summary>
+    /// <param name="args">dotnet ef から渡される引数（使いません）。</param>
+    /// <returns>DbContext。</returns>
     public AppDbContext CreateDbContext(string[] args)
     {
         var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__Default")

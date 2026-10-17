@@ -7,20 +7,45 @@ using NutritionTracker.Api.Tests.Infrastructure;
 
 namespace NutritionTracker.Api.Tests.Profile;
 
-/// <summary>API-04 / API-05 プロフィール（docs/09.API仕様.md §4）。「今日」は 2026-10-17 に固定。</summary>
+/// <summary>
+/// プロフィールの取得（GET /api/profile、API-04）と登録・更新（PUT /api/profile、API-05）のテストです（docs/09.API仕様.md §4）。「今日」は 2026-10-17 に固定しています。
+/// </summary>
 [Collection(ApiCollection.Name)]
 public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
 {
+    /// <summary>
+    /// 各テストの前に、データを初期状態に戻します。
+    /// </summary>
+    /// <returns>完了を表すタスク。</returns>
     public Task InitializeAsync() => fixture.ResetAsync();
 
+    /// <summary>
+    /// 各テストの後の片づけはありません。
+    /// </summary>
+    /// <returns>完了済みのタスク。</returns>
     public Task DisposeAsync() => Task.CompletedTask;
 
-    /// <summary>男性・30 歳（1996-04-01 生まれ）・170cm・65kg・活動レベル 2・目的 skin</summary>
+    /// <summary>
+    /// 正しいプロフィールの入力を作ります（男性・30 歳・170cm・活動レベル 2。体重と目的は指定可）。
+    /// </summary>
+    /// <param name="energyOverride">エネルギー目標の手入力。</param>
+    /// <param name="weight">体重（kg）。</param>
+    /// <param name="goal">目的。</param>
+    /// <returns>プロフィールの入力。</returns>
     private static ProfileInput Valid(int? energyOverride = null, decimal weight = 65.0m, string goal = "skin") =>
         new("male", new DateOnly(1996, 4, 1), 170.0m, weight, 2, goal, energyOverride);
 
+    /// <summary>
+    /// プロフィールの登録・更新 API を呼びます。
+    /// </summary>
+    /// <param name="input">プロフィールの入力。</param>
+    /// <returns>API の応答。</returns>
     private async Task<HttpResponseMessage> PutAsync(ProfileInput input) => await fixture.Client.PutAsJsonAsync("/api/profile", input);
 
+    /// <summary>
+    /// プロフィールを登録すると、算出した目標が返ることを確認します。男性・30 歳・170cm・65kg・活動レベル 2 のエネルギーは 2155 kcal、目的 skin のタンパク質は 65.0g で、栄養目標は転記前なので空です（AC-PROF-001、AC-SCORE-007）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_PROF_001_Put_Registers_AndReturnsComputedTargets()
     {
@@ -35,6 +60,10 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Empty(p.Targets.Nutrients); // T栄養目標は Q-2 で転記するまで空
     }
 
+    /// <summary>
+    /// 範囲外の値（性別・生年月日・身長・体重・活動レベル・目的・エネルギー目標）がすべて項目別の 400 になり、何も保存されないことを確認します（AC-PROF-002）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_PROF_002_Put_InvalidValues_Return400WithFieldDetails()
     {
@@ -51,6 +80,10 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(0, await fixture.WithDbAsync(db => db.UserProfiles.CountAsync())); // 保存されない
     }
 
+    /// <summary>
+    /// 必須項目が抜けているとき、必須の 6 項目が 400 になることを確認します（エネルギー目標の手入力は任意なので含まれません）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Put_MissingFields_Return400ForEachRequiredField()
     {
@@ -61,6 +94,10 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(["sex", "birthDate", "heightCm", "weightKg", "activityLevel", "goal"], fields); // 上書き（任意）は含まれない
     }
 
+    /// <summary>
+    /// 生年月日が今日だと 400、前日なら受け付けられることを確認します（過去の日付だけ有効）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Put_BirthDateToday_IsRejected_PastDayIsAccepted()
     {
@@ -68,6 +105,10 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.OK, (await PutAsync(Valid() with { BirthDate = ApiFixture.Today.AddDays(-1) })).StatusCode);
     }
 
+    /// <summary>
+    /// エネルギー目標を手入力すると、それが実際に使う値になり（自動算出の値は残る）、null に戻すと自動算出に戻ることを確認します（AC-PROF-003）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_PROF_003_EnergyOverride_TakesPrecedence_AndNullReturnsToAuto()
     {
@@ -78,6 +119,11 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(new EnergyTargetDto(2155, null, 2155), back.Targets.EnergyKcal);
     }
 
+    /// <summary>
+    /// エネルギー目標の手入力が 500 未満または 10000 超だと 400 になることを確認します。
+    /// </summary>
+    /// <param name="kcal">手入力したエネルギー目標。</param>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Theory]
     [InlineData(499)]
     [InlineData(10001)]
@@ -89,6 +135,10 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal("energyTargetKcal", (await res.Content.ReadFromJsonAsync<ApiErrorResponse>())!.Details.Single().Field);
     }
 
+    /// <summary>
+    /// プロフィールを更新すると目標が計算し直され（目的を skin から muscle に変えるとタンパク質が 96.0g になる）、行は増えず 1 行のままであることを確認します（AC-PROF-004）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_PROF_004_Update_RecomputesTargets_AndKeepsSingleRow()
     {
@@ -99,6 +149,10 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(1, await fixture.WithDbAsync(db => db.UserProfiles.CountAsync())); // 更新であり、行は増えない
     }
 
+    /// <summary>
+    /// 身長・体重が小数 1 桁に四捨五入されることを確認します（170.04 → 170.0、64.95 → 65.0）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Put_HeightAndWeight_AreRoundedToOneDecimal()
     {
@@ -109,6 +163,10 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
     }
 
     // ---- GET ----
+    /// <summary>
+    /// プロフィール未登録のとき、取得が 404 の NOT_FOUND になることを確認します（画面はプロフィール設定へ案内します）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Get_NotRegistered_Returns404()
     {
@@ -118,6 +176,10 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal("NOT_FOUND", (await res.Content.ReadFromJsonAsync<ApiErrorResponse>())!.Code);
     }
 
+    /// <summary>
+    /// 登録したプロフィールを取得すると、同じ内容（生年月日、手入力のエネルギー目標）が返ることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Get_AfterPut_ReturnsSameContent()
     {
@@ -129,6 +191,10 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(new EnergyTargetDto(2155, 1900, 1900), p.Targets.EnergyKcal);
     }
 
+    /// <summary>
+    /// 取得したプロフィールの栄養目標に、性別と年齢が合う行だけが栄養素の表示順で入ることを確認します。男性 30 歳なら、女性の行と 50 歳以上の行は含まれません（テスト用の仮の値）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Get_IncludesNutrientTargets_MatchingSexAndAge()
     {

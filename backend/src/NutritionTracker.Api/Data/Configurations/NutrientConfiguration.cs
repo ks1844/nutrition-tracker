@@ -5,8 +5,15 @@ using NutritionTracker.Api.Entities;
 
 namespace NutritionTracker.Api.Data.Configurations;
 
+/// <summary>
+/// 「T栄養素」テーブルの列名・型・制約・索引・外部キーの対応づけです（docs/05.テーブル定義書.md）。
+/// </summary>
 internal class NutrientConfiguration : IEntityTypeConfiguration<Nutrient>
 {
+    /// <summary>
+    /// 「T栄養素」テーブルの定義（日本語の列名、型、NOT NULL、CHECK 制約、索引、外部キー、監査列）を設定します。
+    /// </summary>
+    /// <param name="b">テーブルの設定ビルダー。</param>
     public void Configure(EntityTypeBuilder<Nutrient> b)
     {
         b.ToTable("T栄養素", t => t.HasCheckConstraint("CK_栄養素_区分", "`区分` IN ('macro','vitamin','mineral','antioxidant')"));

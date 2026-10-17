@@ -5,14 +5,29 @@ using NutritionTracker.Domain.Nutrition;
 
 namespace NutritionTracker.Api.Tests.Database;
 
-/// <summary>マイグレーション V1〜V4 を実 DB（MySQL 8.4）に適用した結果と、設計書の制約が効くことの確認（docs/05.テーブル定義書.md）。</summary>
+/// <summary>
+/// マイグレーション V1〜V4 を実データベース（MySQL 8.4）に適用した結果と、設計書の制約が効くことのテストです（docs/05.テーブル定義書.md）。
+/// </summary>
 [Collection(ApiCollection.Name)]
 public class DatabaseTests(ApiFixture fixture) : IAsyncLifetime
 {
+    /// <summary>
+    /// 各テストの前に、データを初期状態に戻します。
+    /// </summary>
+    /// <returns>完了を表すタスク。</returns>
     public Task InitializeAsync() => fixture.ResetAsync();
 
+    /// <summary>
+    /// 各テストの後の片づけはありません。
+    /// </summary>
+    /// <returns>完了済みのタスク。</returns>
     public Task DisposeAsync() => Task.CompletedTask;
 
+    /// <summary>
+    /// マイグレーションで 13 のテーブルができ、初期データが入ることを確認します。
+    /// 栄養素 24 件（設計書の順序、アスタキサンチンは参考値）と、固定ユーザー（ID=1）が入ります。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Migrations_CreateAllThirteenTables_WithSeedData()
     {
@@ -32,6 +47,10 @@ public class DatabaseTests(ApiFixture fixture) : IAsyncLifetime
         });
     }
 
+    /// <summary>
+    /// 1 つの食材に既定の換算単位を 2 つ付けようとすると、データベースの一意制約で拒否されることを確認します（既定でない単位は何件でも可）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task OnlyOneDefaultUnit_IsAllowedPerFood()
     {
@@ -48,6 +67,11 @@ public class DatabaseTests(ApiFixture fixture) : IAsyncLifetime
         });
     }
 
+    /// <summary>
+    /// データベースの CHECK 制約が不正な行を拒否することを確認します。
+    /// 微量（Tr）の印がついているのに含有量が 0 でない行は登録できません。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task CheckConstraints_RejectInvalidRows()
     {
@@ -63,6 +87,10 @@ public class DatabaseTests(ApiFixture fixture) : IAsyncLifetime
         });
     }
 
+    /// <summary>
+    /// 作成日時・更新日時が、データベースの既定値（現在時刻）で自動的に入ることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task UpdatedAt_IsRefreshedOnUpdate_ByTheDatabase()
     {

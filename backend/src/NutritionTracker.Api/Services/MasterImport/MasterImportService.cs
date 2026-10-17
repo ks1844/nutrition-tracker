@@ -8,42 +8,105 @@ using NutritionTracker.Domain.Text;
 
 namespace NutritionTracker.Api.Services.MasterImport;
 
-/// <summary>取り込み結果。<see cref="Imported"/> が false のときは、対象の CSV が 1 つも無く何もしていない。</summary>
+/// <summary>
+/// マスタ取り込みの結果です。
+/// </summary>
+/// <param name="Imported">取り込みを行ったか。対象の CSV が 1 つもなければ false で、何もしていません。</param>
+/// <param name="Foods">取り込んだ食材の件数。</param>
+/// <param name="FoodNutrients">取り込んだ食材の栄養素の件数。</param>
+/// <param name="Units">取り込んだ換算単位の件数。</param>
+/// <param name="Aliases">取り込んだ別名の件数。</param>
+/// <param name="Targets">取り込んだ栄養目標の件数。</param>
+/// <param name="Deactivated">CSV から消えたため無効にした食材の件数。</param>
+/// <param name="Warnings">警告（取り込みは続行）。</param>
 public sealed record MasterImportResult(
     bool Imported, int Foods, int FoodNutrients, int Units, int Aliases, int Targets, int Deactivated, IReadOnlyList<string> Warnings)
 {
+    /// <summary>
+    /// 対象の CSV がなく、何もしなかったときの結果。
+    /// </summary>
     public static MasterImportResult Skipped { get; } = new(false, 0, 0, 0, 0, 0, 0, []);
 }
 
 /// <summary>
-/// マスタ CSV（食材・食材栄養素・食材単位・食材別名・栄養目標）の取り込み（docs/07.マスタデータ仕様.md §2〜§5, §7）。
-/// 食品コード等をキーに upsert するので再実行しても結果は同じ。検証エラーが 1 件でもあれば何も書き込まない。
-/// CSV から消えた食材は削除せず無効にする。食材の子（栄養素・単位・別名）は upsert のみで、CSV から消えても削除しない。
+/// マスタ CSV（食材・食材栄養素・食材単位・食材別名・栄養目標）を DB へ取り込みます（docs/07.マスタデータ仕様.md §2〜§5, §7）。
+/// 食品コードなどをキーに更新または追加するので、何度実行しても結果は同じです。検証エラーが 1 件でもあれば何も書き込みません。
+/// CSV から消えた食材は削除せず無効にします。食材の子（栄養素・単位・別名）と栄養目標は追加・更新だけで、CSV から消えても削除しません。
 /// </summary>
+/// <param name="db">データベースへの窓口。</param>
+/// <param name="logger">ログの出力先。</param>
 public partial class MasterImportService(AppDbContext db, ILogger<MasterImportService> logger)
 {
+    /// <summary>
+    /// 食材の CSV のファイル名。
+    /// </summary>
     public const string FoodsFile = "食材.csv";
+    /// <summary>
+    /// 食材の栄養素（成分表の表記つき）の CSV のファイル名。
+    /// </summary>
     public const string FoodNutrientsFile = "食材栄養素.csv";
+    /// <summary>
+    /// 換算単位の CSV のファイル名。
+    /// </summary>
     public const string UnitsFile = "食材単位.csv";
+    /// <summary>
+    /// 別名の CSV のファイル名。
+    /// </summary>
     public const string AliasesFile = "食材別名.csv";
+    /// <summary>
+    /// 栄養目標の CSV のファイル名。
+    /// </summary>
     public const string TargetsFile = "栄養目標.csv";
 
+    /// <summary>
+    /// どの食材にも行があるべき基本の栄養素（エネルギー・タンパク質・脂質・炭水化物）。ないときは警告にします。
+    /// </summary>
     private static readonly string[] CoreNutrients = ["ENERGY", "PROT", "FAT", "CHO"];
+    /// <summary>
+    /// 栄養目標で使える性別。
+    /// </summary>
     private static readonly string[] Sexes = ["male", "female", "all"];
+    /// <summary>
+    /// 栄養目標で使える種類。
+    /// </summary>
     private static readonly string[] Kinds = ["RDA", "AI", "DG_MIN", "DG_MAX", "UL"];
+    /// <summary>
+    /// 栄養目標で使える値の基準。
+    /// </summary>
     private static readonly string[] Bases = ["PER_DAY", "PER_KG_BW", "PCT_ENERGY"];
 
+    /// <summary>
+    /// ひらがな（と長音・中点・空白）だけで書かれているかを確かめる書式。
+    /// </summary>
     [GeneratedRegex(@"^[ぁ-ゖーー・\s]+$")]
     private static partial Regex HiraganaOnly();
 
+    /// <summary>
+    /// 食材の CSV の 1 行（検証済み）。
+    /// </summary>
     private sealed record FoodRow(CsvRow Row, string Code, string Name, string? OfficialName, string Kana, string? Group, decimal RefuseRatePct, string SourceVersion, bool IsActive);
 
+    /// <summary>
+    /// 食材の栄養素の CSV の 1 行（成分表の表記を変換済み）。
+    /// </summary>
     private sealed record FoodNutrientRow(string FoodCode, string NutrientCode, decimal? Amount, bool IsTrace, string? Note);
 
+    /// <summary>
+    /// 換算単位の CSV の 1 行（検証済み）。
+    /// </summary>
     private sealed record UnitRow(string FoodCode, string Name, decimal Grams, bool IsDefault);
 
+    /// <summary>
+    /// 栄養目標の CSV の 1 行（検証済み）。
+    /// </summary>
     private sealed record TargetRow(string NutrientCode, string Sex, short AgeMin, short AgeMax, string Kind, decimal Amount, string Basis, string? Note);
 
+    /// <summary>
+    /// フォルダの CSV を検証し、すべて問題なければ DB に取り込みます。書き込みは 1 つのトランザクションで行います。
+    /// </summary>
+    /// <param name="directory">CSV があるフォルダ。</param>
+    /// <param name="cancellationToken">中止の合図。</param>
+    /// <returns>取り込んだ件数など。対象の CSV が 1 つもなければ「取り込みなし」の結果。検証エラーがあれば MasterImportException。</returns>
     public async Task<MasterImportResult> ImportAsync(string directory, CancellationToken cancellationToken = default)
     {
         var foodsCsv = CsvTable.ReadIfExists(directory, FoodsFile);
@@ -105,6 +168,13 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
 
     // ---- 解析と検証 ----
 
+    /// <summary>
+    /// CSV に必須の列がそろっているかを確かめ、足りなければエラーに追加します。
+    /// </summary>
+    /// <param name="table">CSV。なければ null。</param>
+    /// <param name="errors">エラーの一覧（追記します）。</param>
+    /// <param name="required">必須の列名。</param>
+    /// <returns>CSV があり、必須の列がそろっているとき true。</returns>
     private static bool RequireColumns(CsvTable? table, List<string> errors, params string[] required)
     {
         var missing = table?.MissingColumns(required).ToList() ?? [];
@@ -115,6 +185,13 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         return table is not null && missing.Count == 0;
     }
 
+    /// <summary>
+    /// 食材の CSV を検証して読み取ります。
+    /// 食品コードの重複・名称・読み仮名（ひらがな）・廃棄率（0 以上 100 未満）・出典版・有効フラグなどを確かめます。
+    /// </summary>
+    /// <param name="table">CSV。なければ null。</param>
+    /// <param name="errors">エラーの一覧（追記します）。</param>
+    /// <returns>検証を通った行。</returns>
     private static List<FoodRow> ParseFoods(CsvTable? table, List<string> errors)
     {
         var result = new List<FoodRow>();
@@ -164,6 +241,16 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         return result;
     }
 
+    /// <summary>
+    /// 食材の栄養素の CSV を検証して読み取ります。
+    /// 食品コード・栄養素コードの存在、重複、成分表の表記（-、Tr、(数値)、数値）の変換を確かめます。
+    /// </summary>
+    /// <param name="table">CSV。なければ null。</param>
+    /// <param name="foodCodes">食材の CSV にある食品コード。</param>
+    /// <param name="nutrientCodes">存在する栄養素コード。</param>
+    /// <param name="errors">エラーの一覧（追記します）。</param>
+    /// <param name="warnings">警告の一覧（追記します）。</param>
+    /// <returns>検証を通った行。</returns>
     private static List<FoodNutrientRow> ParseFoodNutrients(
         CsvTable? table, HashSet<string> foodCodes, IEnumerable<string> nutrientCodes, List<string> errors, List<string> warnings)
     {
@@ -210,6 +297,14 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         return result;
     }
 
+    /// <summary>
+    /// 換算単位の CSV を検証して読み取ります。
+    /// 食品コードの存在、単位名の重複、1 単位あたりのグラム（0 より大きい）、既定フラグが食材ごとに 1 つまでかを確かめます。
+    /// </summary>
+    /// <param name="table">CSV。なければ null。</param>
+    /// <param name="foodCodes">食材の CSV にある食品コード。</param>
+    /// <param name="errors">エラーの一覧（追記します）。</param>
+    /// <returns>検証を通った行。</returns>
     private static List<UnitRow> ParseUnits(CsvTable? table, HashSet<string> foodCodes, List<string> errors)
     {
         var result = new List<UnitRow>();
@@ -250,6 +345,13 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         return result;
     }
 
+    /// <summary>
+    /// 別名の CSV を検証して読み取ります。食品コードの存在と、別名の重複を確かめます。
+    /// </summary>
+    /// <param name="table">CSV。なければ null。</param>
+    /// <param name="foodCodes">食材の CSV にある食品コード。</param>
+    /// <param name="errors">エラーの一覧（追記します）。</param>
+    /// <returns>検証を通った行（食品コードと別名）。</returns>
     private static List<(string FoodCode, string Alias)> ParseAliases(CsvTable? table, HashSet<string> foodCodes, List<string> errors)
     {
         var result = new List<(string, string)>();
@@ -279,6 +381,14 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         return result;
     }
 
+    /// <summary>
+    /// 栄養目標の CSV を検証して読み取ります。
+    /// 栄養素コード・性別・年齢の範囲・種類・目標値・値の基準を確かめ、同じ条件の重複と、年齢の範囲が重なる行もエラーにします。
+    /// </summary>
+    /// <param name="table">CSV。なければ null。</param>
+    /// <param name="nutrientCodes">存在する栄養素コード。</param>
+    /// <param name="errors">エラーの一覧（追記します）。</param>
+    /// <returns>検証を通った行。</returns>
     private static List<TargetRow> ParseTargets(CsvTable? table, IEnumerable<string> nutrientCodes, List<string> errors)
     {
         var result = new List<TargetRow>();
@@ -355,6 +465,14 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         return result;
     }
 
+    /// <summary>
+    /// 必須の文字列の列を確かめます。空や長すぎる値はエラーに追加します。
+    /// </summary>
+    /// <param name="row">CSV の行。</param>
+    /// <param name="column">列名。</param>
+    /// <param name="maxLength">最大文字数。</param>
+    /// <param name="errors">エラーの一覧（追記します）。</param>
+    /// <returns>値。エラーのときは null。</returns>
     private static string? Required(CsvRow row, string column, int maxLength, List<string> errors)
     {
         var value = row[column];
@@ -371,6 +489,13 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         return value;
     }
 
+    /// <summary>
+    /// 任意の文字列の列について、長すぎる値をエラーに追加します。
+    /// </summary>
+    /// <param name="row">CSV の行。</param>
+    /// <param name="column">列名。</param>
+    /// <param name="maxLength">最大文字数。</param>
+    /// <param name="errors">エラーの一覧（追記します）。</param>
     private static void Optional(CsvRow row, string column, int maxLength, List<string> errors)
     {
         if (row[column].Length > maxLength)
@@ -379,6 +504,14 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         }
     }
 
+    /// <summary>
+    /// 0 か 1 のフラグの列を読み取ります。それ以外の値はエラーに追加します。
+    /// </summary>
+    /// <param name="row">CSV の行。</param>
+    /// <param name="column">列名。</param>
+    /// <param name="whenEmpty">空欄のときの値。</param>
+    /// <param name="errors">エラーの一覧（追記します）。</param>
+    /// <returns>フラグの値。</returns>
     private static bool ParseFlag(CsvRow row, string column, bool whenEmpty, List<string> errors)
     {
         switch (row[column])
@@ -395,7 +528,12 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         }
     }
 
-    /// <summary>全角・桁区切りのカンマを許す、0 以上の小数。符号・指数・記号（-、Tr、括弧）は不可（V-9）。</summary>
+    /// <summary>
+    /// 0 以上の小数を読み取ります。全角の数字と桁区切りのカンマは許し、符号・指数・記号（-、Tr、括弧）は許しません。
+    /// </summary>
+    /// <param name="text">文字列。</param>
+    /// <param name="value">読み取った値。</param>
+    /// <returns>読み取れたとき true。</returns>
     private static bool TryDecimal(string text, out decimal value)
     {
         var folded = new string(text.Trim()
@@ -405,10 +543,26 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         return decimal.TryParse(folded, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out value) && folded.Length > 0;
     }
 
+    /// <summary>
+    /// 空の文字列を null にします。
+    /// </summary>
+    /// <param name="value">文字列。</param>
+    /// <returns>空なら null、そうでなければそのまま。</returns>
     private static string? NullIfEmpty(string value) => value.Length == 0 ? null : value;
 
     // ---- 書き込み ----
 
+    /// <summary>
+    /// 食材と、その栄養素・単位・別名を DB に追加または更新します。CSV にない食材は無効にします。
+    /// CSV に単位がある食材は、既定の単位の付け替えが一意制約に触れないよう、先に既定フラグをすべて外してから保存します。
+    /// </summary>
+    /// <param name="foods">食材。</param>
+    /// <param name="foodNutrients">食材の栄養素。</param>
+    /// <param name="units">換算単位。</param>
+    /// <param name="aliases">別名。</param>
+    /// <param name="nutrientIds">栄養素コード → 栄養素の ID。</param>
+    /// <param name="ct">中止の合図。</param>
+    /// <returns>無効にした食材の件数。</returns>
     private async Task<int> UpsertFoodsAsync(
         List<FoodRow> foods,
         List<FoodNutrientRow> foodNutrients,
@@ -496,6 +650,12 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         return deactivated;
     }
 
+    /// <summary>
+    /// 栄養目標を DB に追加または更新します（栄養素・性別・年齢・種類が同じ行は上書き）。
+    /// </summary>
+    /// <param name="targets">栄養目標。</param>
+    /// <param name="nutrientIds">栄養素コード → 栄養素の ID。</param>
+    /// <param name="ct">中止の合図。</param>
     private async Task UpsertTargetsAsync(List<TargetRow> targets, Dictionary<string, short> nutrientIds, CancellationToken ct)
     {
         var existing = await db.NutrientTargets.ToListAsync(ct);

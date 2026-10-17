@@ -57,4 +57,7 @@ app.Map("/api/{**path}", () => { throw new NotFoundException(); });
 app.Run();
 
 // WebApplicationFactory（API テスト）から参照するため
+/// <summary>
+/// API テスト（WebApplicationFactory）からアプリを起動できるよう、トップレベルの Program を公開するための宣言です。
+/// </summary>
 public partial class Program;

@@ -8,23 +8,41 @@ using NutritionTracker.Domain.Nutrition;
 
 namespace NutritionTracker.Api.Services;
 
+/// <summary>
+/// 食事記録の登録・取得・更新・削除・コピーを行うサービスです。
+/// 記録するときに栄養量を計算して保存し、あとから表示するときはその保存値を使います。
+/// </summary>
+/// <param name="db">データベースへの窓口。</param>
+/// <param name="catalog">栄養素の情報。</param>
 public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
 {
+    /// <summary>
+    /// メモの最大文字数（500 文字）。
+    /// </summary>
     private const int MaxMemoLength = 500;
+    /// <summary>
+    /// 受け付ける食事区分（朝・昼・夕・間食）。この並びが表示順です。
+    /// </summary>
     private static readonly string[] MealTypes = ["breakfast", "lunch", "dinner", "snack"];
 
-    /// <summary>入力を検証して解決した記録項目 1 行（割合・重量は検証時に確定する）。</summary>
+    /// <summary>
+    /// 検証を通った記録項目 1 行です。食べた割合と重さは検証のときに確定します。更新で入力が変わらない項目は、既存の行（Kept）をそのまま持ちます。
+    /// </summary>
     private sealed record ResolvedItem(
         MealRecordItemInput Input, InputMode Mode, decimal InputValue, Menu? Menu, Food? Food, FoodUnit? Unit, decimal? Ratio, decimal? AmountG)
     {
-        /// <summary>更新時、入力が変わらず既存のスナップショットをそのまま残す項目。</summary>
+        /// <summary>
+        /// 更新のとき、入力が変わらず前のスナップショットをそのまま残す項目。
+        /// </summary>
         public MealRecordItem? Kept { get; init; }
     }
 
     /// <summary>
-    /// API-14 食事記録の作成。サーバーが食べた割合・重量を決め、項目ごとに栄養スナップショットを保存する
-    /// （メニューは合計 × 割合、単品食材は重量から。docs/03.栄養計算仕様.md §6, §7）。
+    /// 食事を記録します（API-14）。
+    /// サーバーが食べた割合・重さを決め、項目ごとに栄養量（スナップショット）を計算して保存します。メニューは「全体の栄養量 × 食べた割合」、単品の食材は「重さから」計算します。
     /// </summary>
+    /// <param name="input">食事日・食事区分・メモ・食べたもの。</param>
+    /// <returns>保存した記録と、メニューの記録が合計 100% を超えたときの警告。入力に問題があれば 400、無効な食材は 409。</returns>
     public async Task<MealRecordSaveResultDto> CreateAsync(MealRecordInput input)
     {
         var record = await BuildRecordAsync(input, await ValidateAsync(input));
@@ -34,9 +52,11 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
     }
 
     /// <summary>
-    /// API-21 他の日の記録をコピーする（「昨日と同じ」）。<b>現在のメニュー・食材の内容で再計算</b>してスナップショットを作る。
-    /// 論理削除されたメニュー・無効な食材はスキップして <c>skipped</c> に載せる。全記録を 1 回の保存で作る。
+    /// ある日の記録を別の日にコピーします（API-21。「昨日と同じ」）。
+    /// 現在のメニュー・食材の内容で栄養量を計算し直します。削除済みのメニューと無効な食材はスキップして理由を返し、全項目がスキップされた食事は作りません。すべて 1 回の保存で作ります。
     /// </summary>
+    /// <param name="input">コピー元の日・コピー先の日・コピー先に記録があってもコピーするか。</param>
+    /// <returns>作った記録とスキップした項目。コピー元に記録がなければ 400、コピー先に記録があって許可がなければ 409。</returns>
     public async Task<MealRecordCopyResultDto> CopyAsync(MealRecordCopyInput input)
     {
         var errors = new List<ErrorDetail>();
@@ -106,6 +126,12 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
         return new MealRecordCopyResultDto(await LoadAsync(r => created.Select(c => c.Id).Contains(r.Id)), skipped);
     }
 
+    /// <summary>
+    /// 検証済みの入力から、保存前の食事記録（項目と栄養量つき）を組み立てます。
+    /// </summary>
+    /// <param name="input">入力内容。</param>
+    /// <param name="resolved">検証を通った項目。</param>
+    /// <returns>保存前の食事記録。</returns>
     private async Task<MealRecord> BuildRecordAsync(MealRecordInput input, List<ResolvedItem> resolved)
     {
         var record = new MealRecord
@@ -124,9 +150,12 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
 
 
     /// <summary>
-    /// API-15 食事記録の更新（全項目置換）。入力が変わった項目はその時点のメニュー・食材の内容でスナップショットを再計算して置き換え、
-    /// 入力が同じ項目は変えない（docs/03.栄養計算仕様.md §8）。
+    /// 食事記録を更新します（API-15）。食事日・区分・メモ・項目をすべて置き換えます。
+    /// 入力（メニュー・食材・単位・入力方式・入力値）が前と同じ項目は前の栄養量を残し、変わった項目と新しい項目だけ計算し直します。外した項目は消えます。
     /// </summary>
+    /// <param name="id">更新する食事記録の ID。</param>
+    /// <param name="input">更新後の内容。</param>
+    /// <returns>更新後の記録と警告。存在しなければ 404。</returns>
     public async Task<MealRecordSaveResultDto> UpdateAsync(long id, MealRecordInput input)
     {
         var record = await db.MealRecords.Include(r => r.Items).ThenInclude(i => i.Nutrients)
@@ -148,7 +177,11 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
         return await ToSaveResultAsync(record.Id);
     }
 
-    /// <summary>API-16 食事記録の削除（物理削除。項目・スナップショットは DB のカスケードで消える）。存在しなければ 404。</summary>
+    /// <summary>
+    /// 食事記録を削除します（API-16）。項目と栄養量も DB のカスケードで一緒に消えます。
+    /// </summary>
+    /// <param name="id">削除する食事記録の ID。存在しなければ 404。</param>
+    /// <returns>処理の完了を表すタスク。</returns>
     public async Task DeleteAsync(long id)
     {
         var deleted = await db.MealRecords
@@ -160,7 +193,11 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
         }
     }
 
-    /// <summary>API-13 日別の食事記録。栄養は保存済みスナップショットをそのまま返す（メニューを後から編集しても変わらない）。</summary>
+    /// <summary>
+    /// 指定した日の食事記録を返します（API-13）。栄養量は記録時の保存値で、あとからメニューを変えても変わりません。
+    /// </summary>
+    /// <param name="date">取得する日（必須。なければ 400）。</param>
+    /// <returns>その日の記録（朝・昼・夕・間食の順）。</returns>
     public async Task<MealRecordDayDto> GetByDateAsync(DateOnly? date)
     {
         if (date is not { } day)
@@ -173,9 +210,13 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
     // ---- 入力の検証 ----
 
     /// <summary>
-    /// 入力を検証する。形式・範囲の違反は 400（項目別）、無効な食材は 409。
-    /// <paramref name="existing"/>（更新時の既存項目）と入力が同じ項目は、削除済みメニューや無効な食材でも保持できる。
+    /// 食事記録の入力を検証し、項目ごとに食べた割合と重さを確定します。
+    /// 食事日・区分・項目の数・メニューか食材のどちらか一方・入力方式・入力値・単位などを確かめて項目別の 400 にし、無効な食材は 409 にします。
+    /// 更新のときは、入力が変わらない既存項目を、削除済みメニューや無効な食材でもそのまま残せます。
     /// </summary>
+    /// <param name="input">入力内容。</param>
+    /// <param name="existing">更新のときの既存の項目。作成のときは null。</param>
+    /// <returns>検証を通った項目。</returns>
     private async Task<List<ResolvedItem>> ValidateAsync(MealRecordInput input, IReadOnlyList<MealRecordItem>? existing = null)
     {
         var unmatched = existing?.ToList() ?? [];
@@ -305,10 +346,23 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
         return resolved;
     }
 
+    /// <summary>
+    /// 既存の項目と入力が同じ（メニュー・食材・単位・入力方式・入力値が同じ）かを判定します。
+    /// </summary>
+    /// <param name="e">既存の項目。</param>
+    /// <param name="i">入力された項目。</param>
+    /// <param name="mode">入力方式。</param>
+    /// <param name="inputValue">小数 3 桁に丸めた入力値。</param>
+    /// <returns>同じとき true。</returns>
     private static bool IsSameInput(MealRecordItem e, MealRecordItemInput i, InputMode mode, decimal inputValue) =>
         e.MenuId == i.MenuId && e.FoodId == i.FoodId && e.InputMode == i.InputMode && e.InputValue == inputValue
         && e.UnitId == (mode == InputMode.Unit ? i.UnitId : null);
 
+    /// <summary>
+    /// 入力方式の文字列（RATIO / SERVING / GRAM / UNIT）を計算用の種類に変換します。
+    /// </summary>
+    /// <param name="mode">入力方式の文字列。</param>
+    /// <returns>計算用の入力方式。</returns>
     private static InputMode ParseMode(string mode) => mode switch
     {
         "RATIO" => InputMode.Ratio,
@@ -319,6 +373,12 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
 
     // ---- スナップショットの作成 ----
 
+    /// <summary>
+    /// 検証済みの項目から、保存する記録項目を組み立て、栄養量（スナップショット）を計算します。
+    /// メニューは「メニュー全体の栄養量 × 食べた割合」、単品の食材は「重さからの栄養量」を、小数 4 桁に丸めて栄養素ごとに持たせます。
+    /// </summary>
+    /// <param name="r">検証を通った項目。</param>
+    /// <returns>栄養量つきの記録項目。</returns>
     private async Task<MealRecordItem> BuildItemAsync(ResolvedItem r)
     {
         var codes = await catalog.CodesAsync();
@@ -361,13 +421,23 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
 
     // ---- 表示用の組み立て ----
 
+    /// <summary>
+    /// 保存した記録を読み直し、メニューの合計 100% 超えの警告を付けて返却用の形にします。
+    /// </summary>
+    /// <param name="recordId">食事記録の ID。</param>
+    /// <returns>記録と警告。</returns>
     private async Task<MealRecordSaveResultDto> ToSaveResultAsync(long recordId)
     {
         var dto = (await LoadAsync(r => r.Id == recordId)).Single();
         return new MealRecordSaveResultDto(dto.Id, dto.EatenOn, dto.MealType, dto.Memo, dto.Items, await WarningsAsync(dto));
     }
 
-    /// <summary>条件に合う記録を、食事区分順（朝・昼・夕・間食）、同じ区分は登録順に返す。</summary>
+    /// <summary>
+    /// 条件に合う食事記録を、項目と保存済みの栄養量つきで読み込みます。
+    /// 食事区分の順（朝・昼・夕・間食）、同じ区分は登録順に並べます。
+    /// </summary>
+    /// <param name="filter">記録を絞り込む条件。</param>
+    /// <returns>返却用の食事記録の一覧。</returns>
     private async Task<List<MealRecordDto>> LoadAsync(Expression<Func<MealRecord, bool>> filter)
     {
         var records = await db.MealRecords.AsNoTracking()
@@ -391,7 +461,11 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
             .ToList();
     }
 
-    /// <summary>この記録に含まれるメニューごとに、全記録の食べた割合の合計が 100% を超えていれば警告を返す。</summary>
+    /// <summary>
+    /// 記録に含まれるメニューごとに、全記録の食べた割合の合計が 100% を超えていないかを調べ、超えていれば警告にします。
+    /// </summary>
+    /// <param name="record">調べる食事記録。</param>
+    /// <returns>警告の一覧（なければ空）。</returns>
     private async Task<IReadOnlyList<MealRecordWarningDto>> WarningsAsync(MealRecordDto record)
     {
         var menus = record.Items.Where(i => i.MenuId is not null).GroupBy(i => i.MenuId!.Value).ToList();

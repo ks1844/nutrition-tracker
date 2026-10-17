@@ -4,8 +4,15 @@ using NutritionTracker.Api.Entities;
 
 namespace NutritionTracker.Api.Data.Configurations;
 
+/// <summary>
+/// 「Tユーザープロフィール」テーブルの列名・型・制約・索引・外部キーの対応づけです（docs/05.テーブル定義書.md）。
+/// </summary>
 internal class UserProfileConfiguration : IEntityTypeConfiguration<UserProfile>
 {
+    /// <summary>
+    /// 「Tユーザープロフィール」テーブルの定義（日本語の列名、型、NOT NULL、CHECK 制約、索引、外部キー、監査列）を設定します。
+    /// </summary>
+    /// <param name="b">テーブルの設定ビルダー。</param>
     public void Configure(EntityTypeBuilder<UserProfile> b)
     {
         b.ToTable("Tユーザープロフィール", t =>

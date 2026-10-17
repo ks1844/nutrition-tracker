@@ -13,41 +13,81 @@ using NutritionTracker.Api.Tests.Infrastructure;
 namespace NutritionTracker.Api.Tests.MasterImport;
 
 /// <summary>
-/// マスタ CSV の取り込み（docs/07.マスタデータ仕様.md）。<b>CSV の値はテスト用のダミーで、実際の成分表・食事摂取基準の値ではない</b>。
+/// マスタ CSV の取り込み（docs/07.マスタデータ仕様.md）のテストです。<b>CSV の値はテスト用のダミーで、実際の成分表・食事摂取基準の値ではありません。</b>
 /// </summary>
 [Collection(ApiCollection.Name)]
 public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDisposable
 {
+    /// <summary>
+    /// テストごとに作る、CSV を置く一時フォルダ。
+    /// </summary>
     private readonly string _dir = Directory.CreateTempSubdirectory("master-import-").FullName;
 
+    /// <summary>
+    /// 各テストの前に、データを初期状態に戻します。
+    /// </summary>
+    /// <returns>完了を表すタスク。</returns>
     public Task InitializeAsync() => fixture.ResetAsync();
 
+    /// <summary>
+    /// 各テストの後の片づけはありません。
+    /// </summary>
+    /// <returns>完了済みのタスク。</returns>
     public Task DisposeAsync() => Task.CompletedTask;
 
+    /// <summary>
+    /// テスト後に、一時フォルダを削除します。
+    /// </summary>
     public void Dispose() => Directory.Delete(_dir, recursive: true);
 
+    /// <summary>
+    /// 食材の CSV のヘッダー行。
+    /// </summary>
     private const string Header = "食品コード,名称,正式名称,読み仮名,食品群,廃棄率,出典版,有効フラグ\n";
 
+    /// <summary>
+    /// 食材の CSV（にんじん・引用符つきの名前の豚こま肉・みそ）。読み仮名はカタカナのものを含みます。
+    /// </summary>
     private const string FoodsCsv = Header
         + "F1,にんじん,,ニンジン,野菜類,10,テスト（ダミー）,\n"
         + "F2,\"豚こま肉, 国産\",,ぶたこまにく,肉類,0,テスト（ダミー）,1\n"
         + "F3,みそ,,みそ,調味料類,0.0,テスト（ダミー）,\n";
 
+    /// <summary>
+    /// 食材の栄養素の CSV。成分表の記号（Tr、-、(1.0)、桁区切りのカンマ、空欄）を含みます。
+    /// </summary>
     private const string NutrientsCsv = "食品コード,栄養素コード,成分表表記,出典メモ\n"
         + "F1,ENERGY,35,\nF1,PROT,(1.0),推定値\nF1,FAT,Tr,\nF1,CHO,9.3,\nF1,VITC,10,\nF1,VITA_RAE,\"1,700\",\n"
         + "F2,ENERGY,120,\nF2,PROT,20,\nF2,FAT,-,\nF2,CHO,0.1,\n"
         + "F3,ENERGY,190,\nF3,PROT,12,\nF3,FAT,6,\nF3,CHO,21,\nF3,VITC,,\n";
 
+    /// <summary>
+    /// 換算単位の CSV（にんじん 1 本、みそ大さじ・小さじ）。
+    /// </summary>
     private const string UnitsCsv = "食品コード,単位名,1単位あたりグラム,既定フラグ,根拠メモ\n"
         + "F1,本,150,1,暫定\nF3,大さじ,18,1,\nF3,小さじ,6,0,\n";
 
+    /// <summary>
+    /// 別名の CSV。
+    /// </summary>
     private const string AliasesCsv = "食品コード,別名\nF1,人参\nF1,ニンジン\nF3,味噌\n";
 
+    /// <summary>
+    /// 栄養目標の CSV（テスト用の仮の値）。
+    /// </summary>
     private const string TargetsCsv = "栄養素コード,性別,年齢下限,年齢上限,種別,目標値,単位基準,出典メモ\n"
         + "CA,male,30,49,RDA,750,PER_DAY,テスト（ダミー）\nVITC,all,18,999,RDA,100,PER_DAY,\nMG,all,0,999,RDA,5,PER_KG_BW,\n";
 
+    /// <summary>
+    /// 一時フォルダに CSV ファイルを書き出します。
+    /// </summary>
+    /// <param name="file">ファイル名。</param>
+    /// <param name="content">CSV の内容。</param>
     private void Write(string file, string content) => File.WriteAllText(Path.Combine(_dir, file), content);
 
+    /// <summary>
+    /// 5 種類の CSV をすべて一時フォルダに書き出します。
+    /// </summary>
     private void WriteAll()
     {
         Write(MasterImportService.FoodsFile, FoodsCsv);
@@ -57,9 +97,17 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         Write(MasterImportService.TargetsFile, TargetsCsv);
     }
 
+    /// <summary>
+    /// 一時フォルダの CSV を取り込みます。
+    /// </summary>
+    /// <returns>取り込みの結果。</returns>
     private Task<MasterImportResult> ImportAsync() =>
         fixture.WithDbAsync(db => new MasterImportService(db, NullLogger<MasterImportService>.Instance).ImportAsync(_dir));
 
+    /// <summary>
+    /// 取り込みが検証エラーで失敗することを確かめ、何も書き込まれていないことも確認して、そのエラーを返します。
+    /// </summary>
+    /// <returns>検証エラー。</returns>
     private async Task<MasterImportException> ImportFailsAsync()
     {
         var ex = await Assert.ThrowsAsync<MasterImportException>(ImportAsync);
@@ -68,6 +116,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
     }
 
     // ---- 正常系 ----
+    /// <summary>
+    /// 5 種類の CSV を取り込むと、件数（食材 3・栄養値 15・単位 3・別名 3・目標 3）のとおり保存され、値が正しく変換されることを確認します。読み仮名はひらがなに、Tr は 0 と微量に、-・空欄は未測定（null）に、(1.0) と桁区切りは数値になります。引用符つきの名前や、既定の単位も確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Imports_AllFiles_WithNotationConversion()
     {
@@ -107,6 +159,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         });
     }
 
+    /// <summary>
+    /// 取り込んだ食材が、カタカナの読み、別名（漢字）で検索できることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Imported_Foods_AreSearchableByKanaAndAlias()
     {
@@ -120,6 +176,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         Assert.Equal(["みそ"], await Search("味噌"));
     }
 
+    /// <summary>
+    /// 同じ CSV を 2 回取り込んでも、件数が増えず結果が同じであることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Import_IsIdempotent()
     {
@@ -133,10 +193,18 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         Assert.Equal((3, 15, 3, 3, 3), (second.Foods, second.FoodNutrients, second.Units, second.Aliases, second.Targets));
     }
 
+    /// <summary>
+    /// 食材・食材の栄養素・単位・別名・栄養目標の件数を数えます。
+    /// </summary>
+    /// <returns>各テーブルの件数。</returns>
     private Task<(int, int, int, int, int)> CountsAsync() => fixture.WithDbAsync(async db => (
         await db.Foods.CountAsync(), await db.FoodNutrients.CountAsync(), await db.FoodUnits.CountAsync(),
         await db.FoodAliases.CountAsync(), await db.NutrientTargets.CountAsync()));
 
+    /// <summary>
+    /// 再取り込みで、値が更新され、既定の単位が付け替えられ、CSV から外した食材が削除されず無効になる（メニューから参照されていても）ことを確認します。CSV にない栄養素の行や栄養目標は削除されません。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Reimport_UpdatesValues_MovesDefaultUnit_AndDeactivatesRemovedFoods()
     {
@@ -169,6 +237,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         });
     }
 
+    /// <summary>
+    /// 食材の CSV だけを取り込んでも、すでにある栄養素・単位・別名・目標と、既定の単位は変わらないことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task OnlyFoodsCsv_LeavesExistingChildrenAndDefaultUnitsUntouched()
     {
@@ -186,6 +258,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         Assert.Equal(2, await fixture.WithDbAsync(db => db.FoodUnits.CountAsync(u => u.IsDefault))); // 既定単位は外れない
     }
 
+    /// <summary>
+    /// CSV が 1 つもない（フォルダがなくても）ときは、何もせず「取り込みなし」になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task NoCsvFiles_IsSkipped()
     {
@@ -196,6 +272,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         Assert.False((await fixture.WithDbAsync(db => new MasterImportService(db, NullLogger<MasterImportService>.Instance).ImportAsync(Path.Combine(_dir, "none")))).Imported); // ディレクトリが無くても失敗しない
     }
 
+    /// <summary>
+    /// BOM つき・改行が CRLF の CSV も取り込めることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Csv_WithBomAndCrlf_IsAccepted()
     {
@@ -207,6 +287,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         Assert.Equal("F1", (await fixture.WithDbAsync(db => db.Foods.OrderBy(f => f.Id).FirstAsync())).FoodCode);
     }
 
+    /// <summary>
+    /// エネルギー・タンパク質・脂質・炭水化物の行がない食材は、エラーではなく警告（V-7）になり、取り込みは続くことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task MissingCoreNutrientRows_AreWarnedNotRejected()
     {
@@ -222,6 +306,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
     }
 
     // ---- 検証エラー（1 件でもあれば何も取り込まない） ----
+    /// <summary>
+    /// 食材の CSV の不正（コード重複、ひらがなでない読み、廃棄率の範囲外、出典版が空、有効フラグの値、コードが空）が、すべて行番号つきで報告され、何も書き込まれないことを確認します（V-1、V-4、V-6、V-8）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task InvalidFoods_AreReportedWithLineNumbers_AndNothingIsWritten()
     {
@@ -244,6 +332,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         Assert.DoesNotContain(ex.Errors, e => e.Contains("2行目"));
     }
 
+    /// <summary>
+    /// 食材の栄養素の CSV の不正（存在しない食品コード・栄養素コード、変換できない表記、負の値、重複）が行番号つきで報告されることを確認します（V-1〜V-3）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task InvalidNutrientRows_AreReported()
     {
@@ -264,6 +356,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         Assert.Contains(ex.Errors, e => e.Contains("食材栄養素.csv 7行目") && e.Contains("重複"));
     }
 
+    /// <summary>
+    /// 換算単位・別名・栄養目標の CSV の不正（0 グラム、単位や別名の重複、既定が 2 つ、存在しない食品コード、ENERGY の DG_*、性別・単位基準の誤り、年齢の逆転、負の目標値、条件の重複、年齢範囲の重なり）が行番号つきで報告され、何も書き込まれないことを確認します（V-1、V-5、V-9、V-10）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task InvalidUnitsAliasesAndTargets_AreReported()
     {
@@ -298,6 +394,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         Assert.Equal(0, await fixture.WithDbAsync(db => db.NutrientTargets.CountAsync()));
     }
 
+    /// <summary>
+    /// 必須の列がヘッダーにないとき、足りない列名が報告されることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task MissingRequiredColumn_IsReported()
     {
@@ -309,6 +409,10 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         Assert.Contains(ex.Errors, e => e.Contains("食材.csv") && e.Contains("出典版"));
     }
 
+    /// <summary>
+    /// ある CSV にエラーがあると、正しい CSV も含めて何も取り込まれないことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task ErrorInOneFile_StopsEveryFileFromBeingImported()
     {
@@ -321,34 +425,71 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
     }
 }
 
-/// <summary>起動時の取り込み（<see cref="MasterImportHostedService"/>）。</summary>
+/// <summary>
+/// 起動時のマスタ CSV 取り込み（MasterImportHostedService）のテストです。
+/// </summary>
 [Collection(ApiCollection.Name)]
 public sealed class MasterImportHostedServiceTests(ApiFixture fixture) : IAsyncLifetime, IDisposable
 {
+    /// <summary>
+    /// テストごとに作る、アプリのコンテンツルートに見立てた一時フォルダ。
+    /// </summary>
     private readonly string _root = Directory.CreateTempSubdirectory("master-host-").FullName;
 
+    /// <summary>
+    /// 各テストの前に、データを初期状態に戻します。
+    /// </summary>
+    /// <returns>完了を表すタスク。</returns>
     public Task InitializeAsync() => fixture.ResetAsync();
 
+    /// <summary>
+    /// 各テストの後の片づけはありません。
+    /// </summary>
+    /// <returns>完了済みのタスク。</returns>
     public Task DisposeAsync() => Task.CompletedTask;
 
+    /// <summary>
+    /// テスト後に、一時フォルダを削除します。
+    /// </summary>
     public void Dispose() => Directory.Delete(_root, recursive: true);
 
+    /// <summary>
+    /// 食材 1 件だけの CSV。
+    /// </summary>
     private const string FoodsCsv = "食品コード,名称,読み仮名,廃棄率,出典版\nF1,にんじん,にんじん,10,テスト（ダミー）\n";
 
+    /// <summary>
+    /// 取り込みの設定を指定して、起動時の取り込みを作ります。
+    /// </summary>
+    /// <param name="enabled">取り込みを有効にするか。</param>
+    /// <param name="path">CSV のフォルダ（相対パスは一時フォルダからの位置）。</param>
+    /// <returns>起動時の取り込み。</returns>
     private MasterImportHostedService Create(bool enabled, string path = "Master") => new(
         fixture.Services.GetRequiredService<IServiceScopeFactory>(),
         Options.Create(new NutritionOptions { MasterImport = new NutritionOptions.MasterImportOptions { Enabled = enabled, Path = path } }),
         new FakeEnvironment(_root),
         NullLogger<MasterImportHostedService>.Instance);
 
+    /// <summary>
+    /// 一時フォルダの Master フォルダに、食材の CSV を書き出します。
+    /// </summary>
+    /// <param name="content">CSV の内容。</param>
     private void WriteFoods(string content)
     {
         Directory.CreateDirectory(Path.Combine(_root, "Master"));
         File.WriteAllText(Path.Combine(_root, "Master", MasterImportService.FoodsFile), content);
     }
 
+    /// <summary>
+    /// 食材の件数を数えます。
+    /// </summary>
+    /// <returns>食材の件数。</returns>
     private Task<int> FoodCountAsync() => fixture.WithDbAsync(db => db.Foods.CountAsync());
 
+    /// <summary>
+    /// 有効のとき、コンテンツルートからの相対パスの CSV が取り込まれることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Enabled_ImportsFromContentRootRelativePath()
     {
@@ -359,6 +500,10 @@ public sealed class MasterImportHostedServiceTests(ApiFixture fixture) : IAsyncL
         Assert.Equal(1, await FoodCountAsync());
     }
 
+    /// <summary>
+    /// 無効のときは、CSV があっても取り込まれないことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Disabled_DoesNothing()
     {
@@ -369,6 +514,10 @@ public sealed class MasterImportHostedServiceTests(ApiFixture fixture) : IAsyncL
         Assert.Equal(0, await FoodCountAsync());
     }
 
+    /// <summary>
+    /// 有効でも CSV（フォルダ）がなければ、何もせず正常に起動できることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Enabled_WithoutCsv_StartsNormally()
     {
@@ -377,6 +526,10 @@ public sealed class MasterImportHostedServiceTests(ApiFixture fixture) : IAsyncL
         Assert.Equal(0, await FoodCountAsync());
     }
 
+    /// <summary>
+    /// CSV にエラーがあるとき、起動が失敗し（例外）、何も書き込まれないことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Enabled_WithInvalidCsv_FailsStartupAndWritesNothing()
     {
@@ -387,6 +540,10 @@ public sealed class MasterImportHostedServiceTests(ApiFixture fixture) : IAsyncL
         Assert.Equal(0, await FoodCountAsync());
     }
 
+    /// <summary>
+    /// 絶対パスを指定したときは、そのまま使われることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Enabled_AbsolutePath_IsUsedAsIs()
     {
@@ -397,14 +554,30 @@ public sealed class MasterImportHostedServiceTests(ApiFixture fixture) : IAsyncL
         Assert.Equal(1, await FoodCountAsync());
     }
 
+    /// <summary>
+    /// テスト用のアプリの実行環境です。コンテンツルート（相対パスの基準）だけを差し替えます。
+    /// </summary>
+    /// <param name="contentRoot">コンテンツルートにするフォルダ。</param>
     private sealed class FakeEnvironment(string contentRoot) : IHostEnvironment
     {
+        /// <summary>
+        /// 環境名。
+        /// </summary>
         public string EnvironmentName { get; set; } = "Testing";
 
+        /// <summary>
+        /// アプリ名。
+        /// </summary>
         public string ApplicationName { get; set; } = "NutritionTracker.Api";
 
+        /// <summary>
+        /// コンテンツルート（相対パスの基準になるフォルダ）。
+        /// </summary>
         public string ContentRootPath { get; set; } = contentRoot;
 
+        /// <summary>
+        /// コンテンツルートのファイル提供元（使いません）。
+        /// </summary>
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }

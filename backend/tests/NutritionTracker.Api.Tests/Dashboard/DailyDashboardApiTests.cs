@@ -8,19 +8,33 @@ using NutritionTracker.Api.Tests.Infrastructure;
 namespace NutritionTracker.Api.Tests.Dashboard;
 
 /// <summary>
-/// 日次ダッシュボード API（API-17、docs/09.API仕様.md §7）。<b>目標値はテスト用の仮の値で、食事摂取基準の公式値ではない</b>。
-/// 摂取量は保存済みスナップショットを直接作って与える（計算そのものは MealRecordsApiTests / Domain のテストで検証済み）。
+/// 日次ダッシュボード API（GET /api/dashboard/daily、API-17、docs/09.API仕様.md §7）のテストです。目標値はテスト用の仮の値で、食事摂取基準の公式値ではありません。
 /// </summary>
 [Collection(ApiCollection.Name)]
 public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(fixture)
 {
 
+    /// <summary>
+    /// 日次ダッシュボード API を呼びます。
+    /// </summary>
+    /// <param name="date">集計する日（省略するとテスト中の今日）。</param>
+    /// <returns>その日のダッシュボード。</returns>
     private async Task<DailyDashboardDto> GetAsync(DateOnly? date = null) =>
         (await Fixture.Client.GetFromJsonAsync<DailyDashboardDto>($"/api/dashboard/daily?date={(date ?? Day):yyyy-MM-dd}"))!;
 
+    /// <summary>
+    /// 栄養素ごとの状態から、指定した栄養素を取り出します。
+    /// </summary>
+    /// <param name="d">日次ダッシュボード。</param>
+    /// <param name="code">栄養素コード。</param>
+    /// <returns>その栄養素の状態。</returns>
     private static NutrientStatusDto Row(DailyDashboardDto d, string code) => d.Nutrients.Single(n => n.Code == code);
 
     // ---- 摂取量・エネルギー・PFC ----
+    /// <summary>
+    /// その日の記録の栄養量を合計し、エネルギー・PFC・PFC 比を返すことを確認します（他の日の記録は含めない）。エネルギー 1420 kcal（目標 2155、達成率 0.658933）、P 62.0g・F 40.0g・C 180.0g、PFC 比は 19 / 27 / 54 です（AC-DASH-001、AC-CALC-012）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_DASH_001_SumsSnapshots_AndReturnsEnergyAndPfc()
     {
@@ -39,6 +53,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal(1420m, Row(d, "ENERGY").Intake); // kcal は整数
     }
 
+    /// <summary>
+    /// 記録のない日は、摂取量がすべて 0、栄養素は 24 件、スコアはすべて値なし、通知なしで返ることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task NoRecords_ReturnsZeroIntake_AndNullScores()
     {
@@ -55,6 +73,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
     }
 
     // ---- スコア ----
+    /// <summary>
+    /// 美肌スコアが達成率の重みつき平均になる（ビタミン C 0.78・ビタミン E 1.0・ビタミン A 0.642857・亜鉛 0.8 で 81、良好）ことと、栄養素ごとの達成率・状態・目標が返ることを確認します（AC-SCORE-001、AC-DASH-002）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_SCORE_001_Beauty_IsWeightedAchievement_CappedAtOne()
     {
@@ -70,6 +92,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal(new NutrientTargetViewDto("RDA", null, null, null, "PER_DAY", 100m), Row(d, "VITC").Target);
     }
 
+    /// <summary>
+    /// 筋肉スコアを確認します。タンパク質は間食を含めた合計 92g（目標 91.0g で頭打ち）、分配率は朝昼夕のうち 2/3（間食は分母に含めない）、エネルギー充足は 0.838167 で、合わせて 90 になります（AC-SCORE-002）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_SCORE_002_Muscle_UsesProteinDistributionAndEnergyFit()
     {
@@ -86,6 +112,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal(new ScoreDto(90, "GOOD", false, false), d.Scores.Muscle);
     }
 
+    /// <summary>
+    /// 朝昼夕の記録がなく間食だけのとき、分配率を外して重みを 0.6 : 0.2 に直して計算する（63）ことを確認します（AC-SCORE-010）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Muscle_WithoutMainMeals_DropsDistribution()
     {
@@ -98,6 +128,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal(63, d.Scores.Muscle.Value);
     }
 
+    /// <summary>
+    /// 基礎スコアが、11 栄養素の達成率の平均（80）から食塩の減点（8.4g、上限 7.0g で 4 点）を引いて 76 になり、食塩が上限超過（OVER_UL）と判定されることを確認します（AC-SCORE-003）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_SCORE_003_Base_AveragesAchievement_AndPenalizesSalt()
     {
@@ -113,6 +147,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal(7.0m, Row(d, "NACL_EQ").Target.Max);
     }
 
+    /// <summary>
+    /// 食塩が上限以内なら減点がなく（80）、状態は ACHIEVED になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Base_SaltWithinLimit_HasNoPenalty()
     {
@@ -127,6 +165,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal("ACHIEVED", Row(d, "NACL_EQ").Status);
     }
 
+    /// <summary>
+    /// 栄養目標が空（転記前）のとき、目標のない美肌・基礎スコアは出ず（null）、目標がプロフィールから算出される筋肉スコアは出ることを確認します。栄養素の状態は NO_TARGET です。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Scores_WithoutTargets_AreNull_ButMuscleStillComputed()
     {
@@ -143,6 +185,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
     }
 
     // ---- 状態 ----
+    /// <summary>
+    /// 亜鉛が耐容上限量（UL）を超えると状態が OVER_UL になる一方、達成率は 1.0 で頭打ちのままで、美肌スコアも 100 になることを確認します（AC-SCORE-006）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_SCORE_006_OverUl_IsFlagged_WhileAchievementStaysCapped()
     {
@@ -157,6 +203,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal(100, d.Scores.Beauty.Value); // スコアの達成率は 1.0 で頭打ちのまま
     }
 
+    /// <summary>
+    /// 下限型の目標の選び方を確認します。RDA がなければ AI、なければ DG_MIN を使い、RDA と AI の両方があれば RDA を優先します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Status_UsesAiAndDgMinWhenNoRda_AndPrefersRda()
     {
@@ -171,6 +221,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal(("RDA", 800m, 0.5m), (Row(d, "CA").Target.Kind, Row(d, "CA").Target.Amount, Row(d, "CA").AchievementRate)); // RDA 優先
     }
 
+    /// <summary>
+    /// 栄養目標が、性別と年齢が合う行だけから引かれ（男性 30 歳なら 30〜49 歳の行）、体重あたりの目標は体重を掛けて 1 日あたりに換算され（5 × 65kg = 325）、エネルギー比の目標は未対応で目標なしになることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task Targets_UseSexAndAge_AndPerKgBasis()
     {
@@ -194,6 +248,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal("NO_TARGET", Row(d, "FAT").Status);
     }
 
+    /// <summary>
+    /// エネルギーとタンパク質の目標が栄養目標のマスタではなくプロフィールから決まることを確認します。エネルギーは手入力の 2500 kcal を優先し、タンパク質は 65kg × 1.6 の 104.0g（種類は CALCULATED）です。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task EnergyAndProtein_UseProfileTargets_WithOverride()
     {
@@ -208,6 +266,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
     }
 
     // ---- 注記・残量 ----
+    /// <summary>
+    /// 未測定を含む栄養素（ビタミン C）に印がつき、通知（INCOMPLETE_NUTRIENT）に載ることと、参考値の栄養素（アスタキサンチン）には印がつかないことを確認します（AC-DASH-007）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task AC_DASH_007_IncompleteNutrients_AreFlaggedAndNoticed_ButReferenceNeverIs()
     {
@@ -224,6 +286,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal(["VITC"], notice.NutrientCodes);
     }
 
+    /// <summary>
+    /// 残りのあるメニューだけが新しい順に返ることを確認します（食べきったメニューは出ない。豚汁は 1.5 杯食べて残り 0.8125、6.5 杯）。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task RemainingMenus_ListsOnlyMenusWithLeftovers()
     {
@@ -248,6 +314,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
     }
 
     // ---- エラー ----
+    /// <summary>
+    /// プロフィール未登録のとき、404 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task NoProfile_Returns404()
     {
@@ -256,6 +326,10 @@ public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(f
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
     }
 
+    /// <summary>
+    /// 日付がない、または日付として読めないとき、400 になることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
     [Fact]
     public async Task MissingOrInvalidDate_Returns400()
     {

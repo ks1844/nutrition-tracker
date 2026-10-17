@@ -3,11 +3,15 @@ using MySqlConnector;
 namespace NutritionTracker.Api.Config;
 
 /// <summary>
-/// 接続文字列を組み立てる。パスワードは設定ファイルに書かず、環境変数 <c>Database__Password</c>
-/// （設定キー Database:Password）で渡す（公開リポジトリにシークレットを置かない: NFR-007）。
+/// データベースの接続文字列を組み立てる補助です。
 /// </summary>
 public static class DatabaseConnection
 {
+    /// <summary>
+    /// 接続文字列を組み立てます。パスワードは設定ファイルに書かず、環境変数 Database__Password（設定キー Database:Password）で渡します（公開リポジトリにシークレットを置かないため。NFR-007）。
+    /// </summary>
+    /// <param name="configuration">アプリの設定。</param>
+    /// <returns>パスワードを加えた接続文字列。</returns>
     public static string Build(IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("Default")

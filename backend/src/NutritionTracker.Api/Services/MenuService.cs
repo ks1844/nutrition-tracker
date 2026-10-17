@@ -7,14 +7,37 @@ using NutritionTracker.Domain.Nutrition;
 
 namespace NutritionTracker.Api.Services;
 
+/// <summary>
+/// メニュー（作り置きの料理）の作成・参照・更新・削除・複製と、保存前の栄養計算を行うサービスです。
+/// </summary>
+/// <param name="db">データベースへの窓口。</param>
+/// <param name="catalog">栄養素の情報と計算結果の変換。</param>
+/// <param name="clock">今日の日付（複製したメニューの作った日に使います）。</param>
 public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clock)
 {
+    /// <summary>
+    /// メニュー名の最大文字数（100 文字）。
+    /// </summary>
     private const int MaxNameLength = 100;
+    /// <summary>
+    /// 1 杯の呼び方の最大文字数（20 文字）。
+    /// </summary>
     private const int MaxLabelLength = 20;
+    /// <summary>
+    /// メモの最大文字数（500 文字）。
+    /// </summary>
     private const int MaxMemoLength = 500;
+    /// <summary>
+    /// 1 杯の呼び方を省略したときの既定値（お椀）。
+    /// </summary>
     private const string DefaultServingLabel = "お椀";
 
-    /// <summary>API-07 メニュー作成。食材量は g または単位で入力でき、換算済みの重量（廃棄前）を保存する。</summary>
+    /// <summary>
+    /// メニューを作成して保存します（API-07）。
+    /// 食材は g でも単位（本・大さじ など）でも指定でき、単位は重さ（廃棄前）に換算して保存します。
+    /// </summary>
+    /// <param name="input">名前・完成後の重さ・杯数・食材など。</param>
+    /// <returns>作ったメニューの詳細（メニュー全体と 1 杯あたりの栄養量を含む）。入力に問題があれば 400、無効な食材が含まれていれば 409。</returns>
     public async Task<MenuDetailDto> CreateAsync(MenuInput input)
     {
         var foods = await ValidateAsync(input);
@@ -25,7 +48,11 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clo
         return await ToDetailAsync(menu.Id);
     }
 
-    /// <summary>API-06 メニュー一覧。論理削除されていないメニューを新しい順に、残量つきで返す。</summary>
+    /// <summary>
+    /// メニューの一覧を返します（API-06）。
+    /// 削除していないメニューを新しい順に、1 杯の重さと残りの量つきで返します。残りは、そのメニューの記録済みの割合から計算します。
+    /// </summary>
+    /// <returns>メニューの一覧。</returns>
     public async Task<IReadOnlyList<MenuSummaryDto>> ListAsync()
     {
         var menus = await db.Menus.AsNoTracking()
@@ -49,7 +76,12 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clo
         }).ToList();
     }
 
-    /// <summary>API-12 未保存メニューの栄養計算。DB は更新しない。無効な食材は 409 ではなく警告にする。</summary>
+    /// <summary>
+    /// 保存せずに、入力中のメニューの栄養量を計算します（API-12）。データベースは更新しません。
+    /// 名前・完成後の重さ・杯数は省略でき（重さと杯数がそろったときだけ 1 杯あたりを返す）、無効な食材は 409 にせず警告にします。
+    /// </summary>
+    /// <param name="input">入力中のメニュー。</param>
+    /// <returns>食材ごとの重さ・可食部・栄養量、全体と 1 杯あたりの栄養量、警告。</returns>
     public async Task<MenuPreviewDto> PreviewAsync(MenuInput input)
     {
         var foods = await ValidateAsync(input, preview: true);
@@ -89,7 +121,11 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clo
         return new MenuPreviewDto(items, await catalog.ToDtosAsync(SnapshotCalculator.ForFood(totals)), servingWeightG, perServing, warnings);
     }
 
-    /// <summary>API-08 メニュー詳細。論理削除済みは 404。</summary>
+    /// <summary>
+    /// メニュー 1 件の詳細を返します（API-08）。
+    /// </summary>
+    /// <param name="id">メニューの ID。</param>
+    /// <returns>メニューの詳細。存在しない、または削除済みなら 404。</returns>
     public async Task<MenuDetailDto> GetAsync(long id)
     {
         await RequireActiveAsync(id);
@@ -97,9 +133,12 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clo
     }
 
     /// <summary>
-    /// API-09 メニュー更新（全項目置換）。過去の記録は栄養スナップショットを持つため変わらない（ADR-0002）。
-    /// 論理削除済みは 404。
+    /// メニューを更新します（API-09）。名前・完成後の重さ・杯数・食材をすべて置き換えます。
+    /// 記録済みの栄養量はその時点の値を保存してあるため、更新しても過去の記録は変わりません（docs/adr/0002）。
     /// </summary>
+    /// <param name="id">更新するメニューの ID。</param>
+    /// <param name="input">更新後の内容。</param>
+    /// <returns>更新後のメニューの詳細。存在しない、または削除済みなら 404。</returns>
     public async Task<MenuDetailDto> UpdateAsync(long id, MenuInput input)
     {
         var menu = await db.Menus.Include(m => m.Items)
@@ -111,12 +150,18 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clo
         return await ToDetailAsync(menu.Id);
     }
 
+    /// <summary>
+    /// 複製したメニューの名前の末尾に付ける言葉（「〜のコピー」）。
+    /// </summary>
     private const string CopySuffix = "のコピー";
 
     /// <summary>
-    /// API-11 メニュー複製。食材・完成後重量・杯数・メモを複製する。記録は複製しない。
-    /// 名前の既定は「&lt;元の名前&gt;のコピー」、調理日の既定は当日。
+    /// メニューを複製します（API-11）。食材・完成後の重さ・杯数・メモを写した新しいメニューを作り、記録は複製しません。
+    /// 名前を省略すると「元の名前のコピー」、作った日を省略すると今日になります。
     /// </summary>
+    /// <param name="id">複製元のメニューの ID。</param>
+    /// <param name="input">新しい名前と作った日（省略可）。</param>
+    /// <returns>複製したメニューの詳細。複製元が存在しない、または削除済みなら 404。</returns>
     public async Task<MenuDetailDto> DuplicateAsync(long id, MenuDuplicateInput? input)
     {
         if (input?.Name is { } requested && (string.IsNullOrWhiteSpace(requested) || requested.Trim().Length > MaxNameLength))
@@ -151,7 +196,11 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clo
         return await ToDetailAsync(copy.Id);
     }
 
-    /// <summary>API-10 メニュー削除（論理削除）。記録済みの食事記録項目は残る。存在しない・削除済みは 404。</summary>
+    /// <summary>
+    /// メニューを削除します（API-10）。削除日時を入れるだけの論理削除で、過去の記録は残ります。
+    /// </summary>
+    /// <param name="id">削除するメニューの ID。存在しない、または削除済みなら 404。</param>
+    /// <returns>処理の完了を表すタスク。</returns>
     public async Task DeleteAsync(long id)
     {
         var menu = await RequireActiveAsync(id);
@@ -159,15 +208,24 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clo
         await db.SaveChangesAsync();
     }
 
-    /// <summary>有効（論理削除されていない）メニューを返す。無ければ 404。</summary>
+    /// <summary>
+    /// 削除されていないメニューを取り出します。
+    /// </summary>
+    /// <param name="id">メニューの ID。</param>
+    /// <returns>メニュー。存在しない、または削除済みなら 404。</returns>
     private async Task<Menu> RequireActiveAsync(long id) =>
         await db.Menus.FirstOrDefaultAsync(m => m.Id == id && m.UserId == User.FixedUserId && m.DeletedAt == null)
         ?? throw new NotFoundException();
 
     // ---- 入力の検証と反映 ----
 
-    /// <summary>入力を検証し、使う食材（栄養素つき）を返す。違反は 400（項目別）、無効な食材は 409。</summary>
-    /// <param name="preview">プレビューのときは、名前・完成後重量・杯数を省略でき、無効な食材は 409 にせず <paramref name="inactive"/> に集める。</param>
+    /// <summary>
+    /// メニューの入力を検証し、使う食材を取り出します。
+    /// 名前・完成後の重さ・杯数・食材の数量や単位などを確かめて項目別の 400 にし、無効な食材は 409（プレビューのときは警告用に集めるだけ）にします。
+    /// </summary>
+    /// <param name="input">入力内容。</param>
+    /// <param name="preview">プレビューのとき true。名前・完成後の重さ・杯数を省略でき、無効な食材でも 409 にしません。</param>
+    /// <returns>食材の ID → 食材（換算単位と栄養素つき）。</returns>
     private async Task<Dictionary<long, Food>> ValidateAsync(MenuInput input, bool preview = false)
     {
         var errors = new List<ErrorDetail>();
@@ -245,6 +303,13 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clo
         return foods;
     }
 
+    /// <summary>
+    /// 検証済みの入力をメニューに反映します。
+    /// 名前などを整え、食材を作り直します（単位入力は重さに換算し、換算した重さを計算の元として保存します）。
+    /// </summary>
+    /// <param name="menu">反映先のメニュー。</param>
+    /// <param name="input">検証済みの入力。</param>
+    /// <param name="foods">入力で使う食材。</param>
     private static void Apply(Menu menu, MenuInput input, Dictionary<long, Food> foods)
     {
         menu.Name = input.Name!.Trim();
@@ -274,6 +339,11 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clo
 
     // ---- 表示用の組み立て ----
 
+    /// <summary>
+    /// 保存済みのメニューから、詳細（全体と 1 杯あたりの栄養量、残りを含む）を組み立てます。
+    /// </summary>
+    /// <param name="id">メニューの ID。</param>
+    /// <returns>メニューの詳細。</returns>
     private async Task<MenuDetailDto> ToDetailAsync(long id)
     {
         var menu = await db.Menus.AsNoTracking()
@@ -296,7 +366,11 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clo
             await RemainingAsync(menu));
     }
 
-    /// <summary>残量 = 1 − そのメニューの全記録の食べた割合の合計（保存しない）。</summary>
+    /// <summary>
+    /// メニューの残りを計算します（1 − そのメニューの全記録の食べた割合の合計）。残りは保存せず、毎回記録から求めます。
+    /// </summary>
+    /// <param name="menu">メニュー。</param>
+    /// <returns>残りの割合・杯数・食べすぎかどうか。</returns>
     private async Task<RemainingDto> RemainingAsync(Menu menu)
     {
         var ratios = await db.MealRecordItems.AsNoTracking()

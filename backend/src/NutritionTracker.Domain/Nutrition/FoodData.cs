@@ -1,8 +1,9 @@
 namespace NutritionTracker.Domain.Nutrition;
 
 /// <summary>
-/// 計算に使う食材のデータ。
-/// <paramref name="Per100g"/> は栄養素コード → 可食部 100g あたり含有量。
-/// <b>値が null、またはコードが無い = 未測定</b>（0 とは区別する）。Tr（微量）は 0。
+/// 栄養計算に使う食材 1 つ分のデータです。
+/// 可食部 100g あたりの量が null、またはコードがないときは「未測定」で、0 とは区別します（Tr＝微量は 0）。
 /// </summary>
+/// <param name="RefuseRatePct">廃棄率（%）。皮・種・ヘタなど食べない部分の割合。</param>
+/// <param name="Per100g">栄養素コード → 可食部 100g あたりの含有量。</param>
 public sealed record FoodData(decimal RefuseRatePct, IReadOnlyDictionary<string, decimal?> Per100g);

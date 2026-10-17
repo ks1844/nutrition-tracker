@@ -3,11 +3,25 @@ using NutritionTracker.Api.Dtos;
 
 namespace NutritionTracker.Api.Exceptions;
 
-/// <summary>例外をエラー形式（docs/09.API仕様.md §1.2）に変換する。想定外の例外の詳細はログのみで、本文に出さない。</summary>
+/// <summary>
+/// API で起きた例外を、統一したエラー形式の JSON に変換します（docs/09.API仕様.md §1.2）。
+/// 想定外の例外の詳細はログにだけ残し、利用者への返答には出しません。
+/// </summary>
+/// <param name="next">次の処理。</param>
+/// <param name="logger">ログの出力先。</param>
 public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
 {
+    /// <summary>
+    /// エラー本文を JSON にするときの設定（項目名は camelCase）。
+    /// </summary>
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    /// <summary>
+    /// 次の処理を実行し、例外が起きたらエラー応答に変換します。
+    /// 業務例外はその内容のまま、リクエストの形式不正は 400、想定外の例外は 500（詳細なし）で返します。
+    /// </summary>
+    /// <param name="context">いまのリクエスト・レスポンス。</param>
+    /// <returns>処理の完了を表すタスク。</returns>
     public async Task InvokeAsync(HttpContext context)
     {
         try
@@ -31,6 +45,13 @@ public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Ex
         }
     }
 
+    /// <summary>
+    /// エラーの JSON をレスポンスに書き出します。
+    /// </summary>
+    /// <param name="context">いまのリクエスト・レスポンス。</param>
+    /// <param name="status">HTTP ステータス。</param>
+    /// <param name="body">エラー本文。</param>
+    /// <returns>書き出しの完了を表すタスク。</returns>
     private static Task WriteAsync(HttpContext context, int status, ApiErrorResponse body)
     {
         context.Response.Clear();

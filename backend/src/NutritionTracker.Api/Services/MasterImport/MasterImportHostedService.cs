@@ -4,15 +4,24 @@ using NutritionTracker.Api.Config;
 namespace NutritionTracker.Api.Services.MasterImport;
 
 /// <summary>
-/// 起動時にマスタ CSV を取り込む（<c>Nutrition:MasterImport:Enabled</c> が true のとき）。
-/// CSV に検証エラーがあれば、何も取り込まずに起動を止める（docs/07.マスタデータ仕様.md §5）。
+/// アプリの起動時にマスタ CSV を取り込みます（設定 Nutrition:MasterImport:Enabled が true のとき）。
+/// CSV に検証エラーがあれば、何も取り込まずに起動を止めます（docs/07.マスタデータ仕様.md §5）。
 /// </summary>
+/// <param name="scopes">取り込みに使うサービスを取り出すための窓口。</param>
+/// <param name="options">取り込みの設定（有効・無効、フォルダ）。</param>
+/// <param name="environment">アプリの実行環境（相対パスの基準になるフォルダ）。</param>
+/// <param name="logger">ログの出力先。</param>
 public sealed class MasterImportHostedService(
     IServiceScopeFactory scopes,
     IOptions<NutritionOptions> options,
     IHostEnvironment environment,
     ILogger<MasterImportHostedService> logger) : IHostedService
 {
+    /// <summary>
+    /// アプリの起動時に呼ばれ、CSV を取り込みます。無効な設定や CSV がないときは何もしません。エラーはログに全件出して、起動を止めます。
+    /// </summary>
+    /// <param name="cancellationToken">中止の合図。</param>
+    /// <returns>処理の完了を表すタスク。</returns>
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         var settings = options.Value.MasterImport;
@@ -48,5 +57,10 @@ public sealed class MasterImportHostedService(
         }
     }
 
+    /// <summary>
+    /// アプリの終了時に呼ばれます。後始末はありません。
+    /// </summary>
+    /// <param name="cancellationToken">中止の合図。</param>
+    /// <returns>完了済みのタスク。</returns>
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }

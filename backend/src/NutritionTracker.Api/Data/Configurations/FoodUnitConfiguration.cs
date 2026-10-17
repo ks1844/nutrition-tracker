@@ -4,11 +4,20 @@ using NutritionTracker.Api.Entities;
 
 namespace NutritionTracker.Api.Data.Configurations;
 
+/// <summary>
+/// 「T食材単位」テーブルの列名・型・制約・索引・外部キーの対応づけです（docs/05.テーブル定義書.md）。
+/// </summary>
 internal class FoodUnitConfiguration : IEntityTypeConfiguration<FoodUnit>
 {
-    /// <summary>MySQL は部分インデックスに対応しないため、生成列＋UNIQUE で「食材ごとの既定単位は 1 件」を表す（docs/05.テーブル定義書.md §3.5）。</summary>
+    /// <summary>
+    /// MySQL は部分インデックスに対応しないため、生成列＋UNIQUE で「食材ごとの既定単位は 1 件だけ」を表します（docs/05.テーブル定義書.md §3.5）。この定数は、その生成列の名前です。
+    /// </summary>
     public const string DefaultKeyColumn = "既定一意キー";
 
+    /// <summary>
+    /// 「T食材単位」テーブルの定義（日本語の列名、型、NOT NULL、CHECK 制約、索引、外部キー、監査列）を設定します。
+    /// </summary>
+    /// <param name="b">テーブルの設定ビルダー。</param>
     public void Configure(EntityTypeBuilder<FoodUnit> b)
     {
         b.ToTable("T食材単位", t => t.HasCheckConstraint("CK_食材単位_グラム", "`1単位あたりグラム` > 0"));
