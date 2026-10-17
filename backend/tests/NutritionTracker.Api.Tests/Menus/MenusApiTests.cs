@@ -439,4 +439,36 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, (await PutAsync(created.Id, Tonjiru(g))).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await PutAsync(999_999, Tonjiru(g))).StatusCode);
     }
+
+    // ---- API-10 削除 ----
+    [Fact]
+    public async Task AC_MENU_007_Delete_IsLogical_KeepsRecords_AndHidesMenu()
+    {
+        var g = await SeedAsync();
+        var created = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        var other = (await (await PostAsync(Tonjiru(g, "別の汁"))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        await AddRecordedPortionAsync(created.Id, 0.125m);
+
+        var res = await fixture.Client.DeleteAsync($"/api/menus/{created.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, res.StatusCode);
+        var list = (await fixture.Client.GetFromJsonAsync<List<MenuSummaryDto>>("/api/menus"))!;
+        Assert.Equal([other.Id], list.Select(m => m.Id).ToList()); // 一覧に出ない
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.GetAsync($"/api/menus/{created.Id}")).StatusCode);
+        Assert.Equal(1, await fixture.WithDbAsync(db => db.MealRecordItems.CountAsync(i => i.MenuId == created.Id))); // 記録は残る
+        var row = await fixture.WithDbAsync(db => db.Menus.AsNoTracking().SingleAsync(m => m.Id == created.Id));
+        Assert.NotNull(row.DeletedAt); // 行は物理削除されない
+        Assert.Equal(3, await fixture.WithDbAsync(db => db.MenuItems.CountAsync(i => i.MenuId == created.Id)));
+    }
+
+    [Fact]
+    public async Task Delete_MissingOrAlreadyDeleted_Returns404()
+    {
+        var g = await SeedAsync();
+        var created = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        await fixture.Client.DeleteAsync($"/api/menus/{created.Id}");
+
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.DeleteAsync($"/api/menus/{created.Id}")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.DeleteAsync("/api/menus/999999")).StatusCode);
+    }
 }

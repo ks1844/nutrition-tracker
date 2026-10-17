@@ -31,4 +31,12 @@ public class MenusController(MenuService menus) : ControllerBase
     /// <summary>API-09 メニュー更新（全項目置換）</summary>
     [HttpPut("{id:long}")]
     public async Task<MenuDetailDto> Update(long id, [FromBody] MenuInput input) => await menus.UpdateAsync(id, input);
+
+    /// <summary>API-10 メニュー削除（論理削除）</summary>
+    [HttpDelete("{id:long}")]
+    public async Task<IActionResult> Delete(long id)
+    {
+        await menus.DeleteAsync(id);
+        return NoContent();
+    }
 }

@@ -111,6 +111,14 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog)
         return await ToDetailAsync(menu.Id);
     }
 
+    /// <summary>API-10 メニュー削除（論理削除）。記録済みの食事記録項目は残る。存在しない・削除済みは 404。</summary>
+    public async Task DeleteAsync(long id)
+    {
+        var menu = await RequireActiveAsync(id);
+        menu.DeletedAt = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+    }
+
     /// <summary>有効（論理削除されていない）メニューを返す。無ければ 404。</summary>
     private async Task<Menu> RequireActiveAsync(long id) =>
         await db.Menus.FirstOrDefaultAsync(m => m.Id == id && m.UserId == User.FixedUserId && m.DeletedAt == null)
