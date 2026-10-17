@@ -19,4 +19,8 @@ public class MealRecordsController(MealRecordService records) : ControllerBase
         var created = await records.CreateAsync(input);
         return Created($"/api/meal-records?date={created.EatenOn:yyyy-MM-dd}", created);
     }
+
+    /// <summary>API-15 食事記録の更新（全項目置換）</summary>
+    [HttpPut("{id:long}")]
+    public async Task<MealRecordSaveResultDto> Update(long id, [FromBody] MealRecordInput input) => await records.UpdateAsync(id, input);
 }

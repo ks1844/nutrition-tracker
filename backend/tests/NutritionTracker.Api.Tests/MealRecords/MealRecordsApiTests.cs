@@ -292,4 +292,106 @@ public class MealRecordsApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.BadRequest, (await fixture.Client.GetAsync("/api/meal-records")).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await fixture.Client.GetAsync("/api/meal-records?date=2026-13-40")).StatusCode);
     }
+
+    // ---- API-15 更新 ----
+    private async Task<HttpResponseMessage> PutAsync(long id, MealRecordInput input) => await fixture.Client.PutAsJsonAsync($"/api/meal-records/{id}", input);
+
+    [Fact]
+    public async Task AC_REC_006_Update_ChangedItemIsRecalculated_UnchangedItemIsKept()
+    {
+        var s = await SeedAsync();
+        var created = await CreateAsync(Dinner(
+            MenuItem(s.Tonjiru.Id, "SERVING", 1m),
+            new MealRecordItemInput(null, s.Golden.Pork.Id, null, "GRAM", 150m)));
+        var keptItemId = created.Items[1].Id;
+        // メニューを書き換える。変更した項目はこの内容で再計算され、同じ入力の項目は変わらない（暫定仕様 §8）
+        await fixture.Client.PutAsJsonAsync($"/api/menus/{s.Tonjiru.Id}", new MenuInput(
+            "豚汁", null, null, 2400m, 8m, "お椀", [new MenuItemInput(s.Golden.Pork.Id, null, 800m)]));
+
+        var res = await PutAsync(created.Id, Dinner(
+            MenuItem(s.Tonjiru.Id, "SERVING", 1.5m),
+            new MealRecordItemInput(null, s.Golden.Pork.Id, null, "GRAM", 150m)));
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var updated = (await res.Content.ReadFromJsonAsync<MealRecordSaveResultDto>())!;
+        Assert.Equal(created.Id, updated.Id);
+        var menuItem = updated.Items.Single(i => i.MenuId == s.Tonjiru.Id);
+        Assert.Equal(0.1875m, menuItem.PortionRatio);
+        Assert.Equal(1.5m, menuItem.InputValue);
+        Assert.Equal(30m, Nutrient(menuItem, "PROT").Amount); // 変更後のメニュー（豚こま肉 800g = PROT 160）× 0.1875。更新前の 11.4175 ではない
+        var kept = updated.Items.Single(i => i.FoodId == s.Golden.Pork.Id);
+        Assert.Equal(keptItemId, kept.Id); // 同じ項目のまま
+        Assert.Equal(30m, Nutrient(kept, "PROT").Amount);
+        Assert.Equal(2, await fixture.WithDbAsync(db => db.MealRecordItems.CountAsync()));
+        Assert.Equal(48, await fixture.WithDbAsync(db => db.MealRecordItemNutrients.CountAsync())); // 古いスナップショットは残らない
+    }
+
+    [Fact]
+    public async Task Update_ChangesMealTypeDateMemo_AndRemovesDroppedItems()
+    {
+        var s = await SeedAsync();
+        var created = await CreateAsync(Dinner(
+            MenuItem(s.Tonjiru.Id, "SERVING", 1m),
+            new MealRecordItemInput(null, s.Golden.Pork.Id, null, "GRAM", 150m)));
+
+        var res = await PutAsync(created.Id, new MealRecordInput(Day.AddDays(1), "lunch", "お弁当", [MenuItem(s.Tonjiru.Id, "SERVING", 1m)]));
+
+        var updated = (await res.Content.ReadFromJsonAsync<MealRecordSaveResultDto>())!;
+        Assert.Equal((Day.AddDays(1), "lunch", "お弁当"), (updated.EatenOn, updated.MealType, updated.Memo));
+        Assert.Single(updated.Items);
+        Assert.Equal(1, await fixture.WithDbAsync(db => db.MealRecordItems.CountAsync())); // 外した項目は消える
+        Assert.Empty((await GetDayAsync(Day)).Records);
+    }
+
+    [Fact]
+    public async Task Update_KeepsUnchangedItem_EvenWhenMenuWasDeleted_ButRejectsNewDeletedMenu()
+    {
+        var s = await SeedAsync();
+        var other = (await (await fixture.Client.PostAsJsonAsync("/api/menus", new MenuInput(
+            "別の汁", null, null, 1000m, 4m, null, [new MenuItemInput(s.Golden.Pork.Id, null, 100m)]))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        var created = await CreateAsync(Dinner(MenuItem(s.Tonjiru.Id, "SERVING", 1m)));
+        await fixture.Client.DeleteAsync($"/api/menus/{s.Tonjiru.Id}");
+        await fixture.Client.DeleteAsync($"/api/menus/{other.Id}");
+
+        var keep = await PutAsync(created.Id, new MealRecordInput(Day, "lunch", null, [MenuItem(s.Tonjiru.Id, "SERVING", 1m)]));
+        var addDeleted = await PutAsync(created.Id, Dinner(MenuItem(s.Tonjiru.Id, "SERVING", 1m), MenuItem(other.Id, "RATIO", 0.1m)));
+
+        Assert.Equal(HttpStatusCode.OK, keep.StatusCode); // 既存項目は削除済みメニューでも保持できる
+        Assert.Equal(HttpStatusCode.BadRequest, addDeleted.StatusCode);
+        Assert.Equal("items[1].menuId", (await addDeleted.Content.ReadFromJsonAsync<ApiErrorResponse>())!.Details.Single().Field);
+    }
+
+    [Fact]
+    public async Task Update_InvalidInput_Returns400_AndKeepsOriginal()
+    {
+        var s = await SeedAsync();
+        var created = await CreateAsync(Dinner(MenuItem(s.Tonjiru.Id, "SERVING", 1m)));
+
+        var res = await PutAsync(created.Id, new MealRecordInput(Day, "dinner", null, [MenuItem(s.Tonjiru.Id, "SERVING", 0m)]));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        var item = (await GetDayAsync(Day)).Records.Single().Items.Single();
+        Assert.Equal(1m, item.InputValue);
+    }
+
+    [Fact]
+    public async Task Update_MissingRecord_Returns404()
+    {
+        var s = await SeedAsync();
+
+        var res = await PutAsync(999_999, Dinner(MenuItem(s.Tonjiru.Id, "SERVING", 1m)));
+
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Update_OverHundredPercent_ReturnsWarning()
+    {
+        var s = await SeedAsync();
+        var created = await CreateAsync(Dinner(MenuItem(s.Tonjiru.Id, "RATIO", 0.5m)));
+
+        var updated = (await (await PutAsync(created.Id, Dinner(MenuItem(s.Tonjiru.Id, "RATIO", 1.2m)))).Content.ReadFromJsonAsync<MealRecordSaveResultDto>())!;
+
+        Assert.Equal(1.2m, Assert.Single(updated.Warnings).TotalPortionRatio); // 置き換えた後の合計（古い 0.5 は含まない）
+    }
 }

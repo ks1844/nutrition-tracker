@@ -15,7 +15,11 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
 
     /// <summary>入力を検証して解決した記録項目 1 行（割合・重量は検証時に確定する）。</summary>
     private sealed record ResolvedItem(
-        MealRecordItemInput Input, InputMode Mode, decimal InputValue, Menu? Menu, Food? Food, FoodUnit? Unit, decimal? Ratio, decimal? AmountG);
+        MealRecordItemInput Input, InputMode Mode, decimal InputValue, Menu? Menu, Food? Food, FoodUnit? Unit, decimal? Ratio, decimal? AmountG)
+    {
+        /// <summary>更新時、入力が変わらず既存のスナップショットをそのまま残す項目。</summary>
+        public MealRecordItem? Kept { get; init; }
+    }
 
     /// <summary>
     /// API-14 食事記録の作成。サーバーが食べた割合・重量を決め、項目ごとに栄養スナップショットを保存する
@@ -40,6 +44,31 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
         return await ToSaveResultAsync(record.Id);
     }
 
+    /// <summary>
+    /// API-15 食事記録の更新（全項目置換）。入力が変わった項目はその時点のメニュー・食材の内容でスナップショットを再計算して置き換え、
+    /// 入力が同じ項目は変えない（docs/03.栄養計算仕様.md §8）。
+    /// </summary>
+    public async Task<MealRecordSaveResultDto> UpdateAsync(long id, MealRecordInput input)
+    {
+        var record = await db.MealRecords.Include(r => r.Items).ThenInclude(i => i.Nutrients)
+            .FirstOrDefaultAsync(r => r.Id == id && r.UserId == User.FixedUserId)
+            ?? throw new NotFoundException();
+        var resolved = await ValidateAsync(input, record.Items);
+
+        record.EatenOn = input.EatenOn!.Value;
+        record.MealType = input.MealType!;
+        record.Memo = string.IsNullOrWhiteSpace(input.Memo) ? null : input.Memo;
+
+        var keptItems = resolved.Where(r => r.Kept is not null).Select(r => r.Kept!).ToHashSet();
+        db.MealRecordItems.RemoveRange(record.Items.Where(i => !keptItems.Contains(i)).ToList());
+        foreach (var item in resolved.Where(r => r.Kept is null))
+        {
+            record.Items.Add(await BuildItemAsync(item));
+        }
+        await db.SaveChangesAsync();
+        return await ToSaveResultAsync(record.Id);
+    }
+
     /// <summary>API-13 日別の食事記録。栄養は保存済みスナップショットをそのまま返す（メニューを後から編集しても変わらない）。</summary>
     public async Task<MealRecordDayDto> GetByDateAsync(DateOnly? date)
     {
@@ -52,9 +81,13 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
 
     // ---- 入力の検証 ----
 
-    /// <summary>入力を検証する。形式・範囲の違反は 400（項目別）、無効な食材は 409。</summary>
-    private async Task<List<ResolvedItem>> ValidateAsync(MealRecordInput input)
+    /// <summary>
+    /// 入力を検証する。形式・範囲の違反は 400（項目別）、無効な食材は 409。
+    /// <paramref name="existing"/>（更新時の既存項目）と入力が同じ項目は、削除済みメニューや無効な食材でも保持できる。
+    /// </summary>
+    private async Task<List<ResolvedItem>> ValidateAsync(MealRecordInput input, IReadOnlyList<MealRecordItem>? existing = null)
     {
+        var unmatched = existing?.ToList() ?? [];
         var errors = new List<ErrorDetail>();
         if (input.EatenOn is null)
         {
@@ -113,6 +146,13 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
 
             var mode = ParseMode(item.InputMode!);
             var inputValue = RoundingPolicy.Round(item.InputValue!.Value, 3);
+            var kept = unmatched.FirstOrDefault(e => IsSameInput(e, item, mode, inputValue));
+            if (kept is not null)
+            {
+                unmatched.Remove(kept);
+                resolved.Add(new ResolvedItem(item, mode, inputValue, null, null, null, null, null) { Kept = kept });
+                continue;
+            }
             if (item.MenuId is { } menuId)
             {
                 if (!menus.TryGetValue(menuId, out var menu))
@@ -173,6 +213,10 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
         }
         return resolved;
     }
+
+    private static bool IsSameInput(MealRecordItem e, MealRecordItemInput i, InputMode mode, decimal inputValue) =>
+        e.MenuId == i.MenuId && e.FoodId == i.FoodId && e.InputMode == i.InputMode && e.InputValue == inputValue
+        && e.UnitId == (mode == InputMode.Unit ? i.UnitId : null);
 
     private static InputMode ParseMode(string mode) => mode switch
     {
