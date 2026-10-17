@@ -12,60 +12,13 @@ namespace NutritionTracker.Api.Tests.Dashboard;
 /// 摂取量は保存済みスナップショットを直接作って与える（計算そのものは MealRecordsApiTests / Domain のテストで検証済み）。
 /// </summary>
 [Collection(ApiCollection.Name)]
-public class DailyDashboardApiTests(ApiFixture fixture) : IAsyncLifetime
+public class DailyDashboardApiTests(ApiFixture fixture) : DashboardApiTestBase(fixture)
 {
-    public Task InitializeAsync() => fixture.ResetAsync();
-
-    public Task DisposeAsync() => Task.CompletedTask;
-
-    private static readonly DateOnly Day = ApiFixture.Today;
-
-    /// <summary>男性・30 歳・170cm・65kg・活動レベル 2 → エネルギー目標 2155 kcal、目的 both → タンパク質目標 91.0 g</summary>
-    private async Task PutProfileAsync(string goal = "both") =>
-        Assert.Equal(HttpStatusCode.OK, (await fixture.Client.PutAsJsonAsync(
-            "/api/profile", new ProfileInput("male", new DateOnly(1996, 4, 1), 170.0m, 65.0m, 2, goal, null))).StatusCode);
-
-    private async Task AddTargetsAsync(params (string Code, string Kind, decimal Amount)[] targets)
-    {
-        await fixture.WithDbAsync(async db =>
-        {
-            var ids = await db.Nutrients.ToDictionaryAsync(n => n.Code, n => n.Id);
-            foreach (var (code, kind, amount) in targets)
-            {
-                db.NutrientTargets.Add(new NutrientTarget
-                {
-                    NutrientId = ids[code], Sex = "all", AgeMin = 0, AgeMax = 150, Kind = kind, Amount = amount, Basis = "PER_DAY",
-                });
-            }
-            await db.SaveChangesAsync();
-        });
-    }
-
-    /// <summary>1 食分の記録を直接作る（単品食材の 1 項目に、与えた量のスナップショットを持たせる）。</summary>
-    private async Task AddIntakeAsync(DateOnly date, string mealType, Dictionary<string, decimal> amounts, params string[] incomplete)
-    {
-        await fixture.WithDbAsync(async db =>
-        {
-            var food = await db.Foods.FirstOrDefaultAsync() ?? await TestData.AddCarrotAsync(db);
-            var record = new MealRecord { UserId = User.FixedUserId, EatenOn = date, MealType = mealType };
-            var item = new MealRecordItem { FoodId = food.Id, InputMode = "GRAM", InputValue = 100m, AmountG = 100m };
-            foreach (var nutrient in await db.Nutrients.ToListAsync())
-            {
-                item.Nutrients.Add(new MealRecordItemNutrient
-                {
-                    NutrientId = nutrient.Id, Amount = amounts.GetValueOrDefault(nutrient.Code), IsIncomplete = incomplete.Contains(nutrient.Code),
-                });
-            }
-            record.Items.Add(item);
-            db.MealRecords.Add(record);
-            await db.SaveChangesAsync();
-        });
-    }
 
     private async Task<DailyDashboardDto> GetAsync(DateOnly? date = null) =>
-        (await fixture.Client.GetFromJsonAsync<DailyDashboardDto>($"/api/dashboard/daily?date={(date ?? Day):yyyy-MM-dd}"))!;
+        (await Fixture.Client.GetFromJsonAsync<DailyDashboardDto>($"/api/dashboard/daily?date={(date ?? Day):yyyy-MM-dd}"))!;
 
-    private static DailyNutrientDto Row(DailyDashboardDto d, string code) => d.Nutrients.Single(n => n.Code == code);
+    private static NutrientStatusDto Row(DailyDashboardDto d, string code) => d.Nutrients.Single(n => n.Code == code);
 
     // ---- 摂取量・エネルギー・PFC ----
     [Fact]
@@ -222,7 +175,7 @@ public class DailyDashboardApiTests(ApiFixture fixture) : IAsyncLifetime
     public async Task Targets_UseSexAndAge_AndPerKgBasis()
     {
         await PutProfileAsync();
-        await fixture.WithDbAsync(async db =>
+        await Fixture.WithDbAsync(async db =>
         {
             var ids = await db.Nutrients.ToDictionaryAsync(n => n.Code, n => n.Id);
             db.NutrientTargets.AddRange(
@@ -244,7 +197,7 @@ public class DailyDashboardApiTests(ApiFixture fixture) : IAsyncLifetime
     [Fact]
     public async Task EnergyAndProtein_UseProfileTargets_WithOverride()
     {
-        await fixture.Client.PutAsJsonAsync("/api/profile", new ProfileInput("male", new DateOnly(1996, 4, 1), 170.0m, 65.0m, 2, "muscle", 2500));
+        await Fixture.Client.PutAsJsonAsync("/api/profile", new ProfileInput("male", new DateOnly(1996, 4, 1), 170.0m, 65.0m, 2, "muscle", 2500));
         await AddIntakeAsync(Day, "dinner", new() { ["ENERGY"] = 1250m, ["PROT"] = 52m });
 
         var d = await GetAsync();
@@ -276,14 +229,14 @@ public class DailyDashboardApiTests(ApiFixture fixture) : IAsyncLifetime
     {
         await PutProfileAsync();
         TestData.Golden? golden = null;
-        await fixture.WithDbAsync(async db => golden = await TestData.AddGoldenAsync(db));
+        await Fixture.WithDbAsync(async db => golden = await TestData.AddGoldenAsync(db));
         var g = golden!;
-        async Task<MenuDetailDto> MenuAsync(string name) => (await (await fixture.Client.PostAsJsonAsync("/api/menus", new MenuInput(
+        async Task<MenuDetailDto> MenuAsync(string name) => (await (await Fixture.Client.PostAsJsonAsync("/api/menus", new MenuInput(
             name, null, null, 2400m, 8m, "お椀", [new MenuItemInput(g.Pork.Id, null, 400m)]))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
         var partly = await MenuAsync("豚汁");
         var eaten = await MenuAsync("食べきった汁");
         await MenuAsync("手つかずの汁");
-        await fixture.Client.PostAsJsonAsync("/api/meal-records", new MealRecordInput(Day, "dinner", null,
+        await Fixture.Client.PostAsJsonAsync("/api/meal-records", new MealRecordInput(Day, "dinner", null,
             [new MealRecordItemInput(partly.Id, null, null, "SERVING", 1.5m), new MealRecordItemInput(eaten.Id, null, null, "SERVING", 8m)]));
 
         var d = await GetAsync();
@@ -298,7 +251,7 @@ public class DailyDashboardApiTests(ApiFixture fixture) : IAsyncLifetime
     [Fact]
     public async Task NoProfile_Returns404()
     {
-        var res = await fixture.Client.GetAsync($"/api/dashboard/daily?date={Day:yyyy-MM-dd}");
+        var res = await Fixture.Client.GetAsync($"/api/dashboard/daily?date={Day:yyyy-MM-dd}");
 
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
     }
@@ -308,7 +261,7 @@ public class DailyDashboardApiTests(ApiFixture fixture) : IAsyncLifetime
     {
         await PutProfileAsync();
 
-        Assert.Equal(HttpStatusCode.BadRequest, (await fixture.Client.GetAsync("/api/dashboard/daily")).StatusCode);
-        Assert.Equal(HttpStatusCode.BadRequest, (await fixture.Client.GetAsync("/api/dashboard/daily?date=abc")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Fixture.Client.GetAsync("/api/dashboard/daily")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await Fixture.Client.GetAsync("/api/dashboard/daily?date=abc")).StatusCode);
     }
 }

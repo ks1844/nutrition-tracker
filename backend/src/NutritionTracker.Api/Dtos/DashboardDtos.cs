@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace NutritionTracker.Api.Dtos;
 
 public sealed record EnergySummaryDto(int IntakeKcal, int TargetKcal, decimal AchievementRate);
@@ -19,10 +21,11 @@ public sealed record ScoresDto(ScoreDto Beauty, ScoreDto Muscle, ScoreDto Base);
 public sealed record NutrientTargetViewDto(string? Kind, decimal? Min, decimal? Max, decimal? Ul, string Basis, decimal? Amount);
 
 /// <summary>
-/// 栄養素 1 つの日次の状態。<paramref name="Status"/> は DEFICIENT / ACHIEVED / OVER_UL / NO_TARGET。
+/// 栄養素 1 つの状態（日次・7 日平均で共通）。<paramref name="Status"/> は DEFICIENT / ACHIEVED / OVER_UL / NO_TARGET。
 /// <paramref name="AchievementRate"/> は下限型の目標がある場合だけ（100% で頭打ち）。
+/// <paramref name="UlExceededDays"/> は 7 日平均のときだけ付く、期間内に上限を超えた日数。
 /// </summary>
-public sealed record DailyNutrientDto(
+public sealed record NutrientStatusDto(
     string Code,
     string NameJa,
     string Unit,
@@ -31,7 +34,8 @@ public sealed record DailyNutrientDto(
     decimal? AchievementRate,
     string Status,
     bool IsIncomplete,
-    bool IsReference);
+    bool IsReference,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? UlExceededDays = null);
 
 public sealed record RemainingMenuDto(long MenuId, string Name, decimal RemainingRatio, decimal RemainingServings, string ServingLabel);
 
@@ -44,6 +48,31 @@ public sealed record DailyDashboardDto(
     EnergySummaryDto Energy,
     PfcSummaryDto Pfc,
     ScoresDto Scores,
-    IReadOnlyList<DailyNutrientDto> Nutrients,
+    IReadOnlyList<NutrientStatusDto> Nutrients,
+    IReadOnlyList<RemainingMenuDto> RemainingMenus,
+    IReadOnlyList<DashboardNoticeDto> Notices);
+
+/// <summary>7 日平均のエネルギー（kcal は整数）。</summary>
+public sealed record AverageEnergyDto(int IntakeKcal, int TargetKcal);
+
+/// <summary>
+/// 記録のある日だけで平均した値。記録日が 0 のときは <paramref name="Energy"/> と <paramref name="Pfc"/> が null、
+/// <paramref name="Nutrients"/> は空。
+/// </summary>
+public sealed record WeeklyAveragesDto(AverageEnergyDto? Energy, PfcSummaryDto? Pfc, IReadOnlyList<NutrientStatusDto> Nutrients);
+
+public sealed record SeriesScoresDto(int? Beauty, int? Muscle, int? Base);
+
+/// <summary>窓の 1 日。記録の無い日は <paramref name="HasRecords"/> が false で、kcal とスコアは null（0 にしない）。</summary>
+public sealed record SeriesPointDto(DateOnly Date, bool HasRecords, int? IntakeKcal, SeriesScoresDto? Scores);
+
+public sealed record WeeklyDashboardDto(
+    DateOnly EndDate,
+    DateOnly WindowStart,
+    int RecordDays,
+    bool InsufficientData,
+    WeeklyAveragesDto Averages,
+    ScoresDto Scores,
+    IReadOnlyList<SeriesPointDto> Series,
     IReadOnlyList<RemainingMenuDto> RemainingMenus,
     IReadOnlyList<DashboardNoticeDto> Notices);

@@ -16,6 +16,7 @@ public class DashboardService(
     TargetService targetService,
     MenuService menus,
     NutritionCatalog catalog,
+    AppClock clock,
     IOptions<NutritionOptions> options)
 {
     private static readonly string[] MainMeals = ["breakfast", "lunch", "dinner"];
@@ -45,43 +46,111 @@ public class DashboardService(
         var intake = (await LoadAsync(day, day)).GetValueOrDefault(day);
 
         var amounts = intake?.Amounts ?? [];
-        var incomplete = intake?.Incomplete ?? [];
-        var nutrients = await catalog.NutrientsAsync();
-
-        var energyIntake = amounts.GetValueOrDefault(NutrientCodes.Energy);
-        var pfc = PfcCalculator.Calculate(
-            amounts.GetValueOrDefault(NutrientCodes.Protein), amounts.GetValueOrDefault(NutrientCodes.Fat),
-            amounts.GetValueOrDefault(NutrientCodes.Carbohydrate));
-
-        var rows = nutrients.Select(n =>
-        {
-            var view = targets.Get(n.Code);
-            var amount = amounts.GetValueOrDefault(n.Code);
-            var (rate, status) = Evaluate(amount, view);
-            return new DailyNutrientDto(
-                n.Code, n.Name, n.Unit, SnapshotCalculator.ForDisplay(amount, n.Unit),
-                ToDto(view), rate, status, incomplete.Contains(n.Code) && !n.IsReference, n.IsReference);
-        }).ToList();
-
-        var incompleteCodes = rows.Where(r => r.IsIncomplete).Select(r => r.Code).ToList();
-        var remaining = (await menus.ListAsync())
-            .Where(m => m.Remaining.Ratio > 0m)
-            .Select(m => new RemainingMenuDto(m.Id, m.Name, m.Remaining.Ratio, m.Remaining.Servings, m.ServingLabel))
-            .ToList();
+        var rows = await RowsAsync(amounts, intake?.Incomplete ?? [], targets, null);
 
         return new DailyDashboardDto(
             day, intake is not null,
             new EnergySummaryDto(
-                (int)RoundingPolicy.Round(energyIntake, 0), targets.EnergyKcal,
-                RoundingPolicy.Round(energyIntake / targets.EnergyKcal, RoundingPolicy.RatioDigits)),
-            new PfcSummaryDto(
-                SnapshotCalculator.ForDisplay(amounts.GetValueOrDefault(NutrientCodes.Protein), "g"),
-                SnapshotCalculator.ForDisplay(amounts.GetValueOrDefault(NutrientCodes.Fat), "g"),
-                SnapshotCalculator.ForDisplay(amounts.GetValueOrDefault(NutrientCodes.Carbohydrate), "g"),
-                new PfcRatioPctDto(pfc.ProteinDisplay, pfc.FatDisplay, pfc.CarbDisplay)),
+                (int)RoundingPolicy.Round(amounts.GetValueOrDefault(NutrientCodes.Energy), 0), targets.EnergyKcal,
+                RoundingPolicy.Round(amounts.GetValueOrDefault(NutrientCodes.Energy) / targets.EnergyKcal, RoundingPolicy.RatioDigits)),
+            PfcOf(amounts),
             intake is null ? EmptyScores() : ScoresFor(intake.Amounts, intake.Incomplete, MainMealProteins([intake]), targets),
-            rows, remaining,
-            incompleteCodes.Count == 0 ? [] : [new DashboardNoticeDto("INCOMPLETE_NUTRIENT", incompleteCodes)]);
+            rows, await RemainingMenusAsync(), NoticesOf(rows));
+    }
+
+    /// <summary>
+    /// API-18 直近 7 日ダッシュボード。窓 = <c>endDate−6</c>〜<c>endDate</c>。
+    /// 摂取量は<b>記録のある日だけ</b>で平均する（記録の無い日は分母に含めない。ADR-0004）。記録日が 3 日未満ならスコアは出さない（FR-046）。
+    /// </summary>
+    public async Task<WeeklyDashboardDto> WeeklyAsync(DateOnly? endDate)
+    {
+        if (endDate is not { } end)
+        {
+            throw new ValidationException("endDate", "終了日を指定してください");
+        }
+        if (end > clock.Today)
+        {
+            throw new ValidationException("endDate", "未来の日付は指定できません");
+        }
+        var profile = await profiles.RequireAsync();
+        var targets = await targetService.ResolveAsync(profile, end);
+        var settings = options.Value.Scoring.ToSettings();
+        var start = end.AddDays(-6);
+        var days = await LoadAsync(start, end);
+        var recordDays = days.Count;
+        var insufficient = ScoreCalculator.IsInsufficientData(recordDays, settings);
+
+        var series = Enumerable.Range(0, 7).Select(i => start.AddDays(i)).Select(date =>
+        {
+            if (!days.TryGetValue(date, out var d))
+            {
+                return new SeriesPointDto(date, false, null, null);
+            }
+            var s = ScoresFor(d.Amounts, d.Incomplete, MainMealProteins([d]), targets);
+            return new SeriesPointDto(
+                date, true, (int)RoundingPolicy.Round(d.Amount(NutrientCodes.Energy), 0),
+                new SeriesScoresDto(s.Beauty.Value, s.Muscle.Value, s.Base.Value));
+        }).ToList();
+
+        var scores = EmptyScores(insufficient);
+        WeeklyAveragesDto averages = new(null, null, []);
+        IReadOnlyList<NutrientStatusDto> rows = [];
+        if (recordDays > 0)
+        {
+            var average = days.Values.SelectMany(d => d.Amounts).GroupBy(p => p.Key)
+                .ToDictionary(g => g.Key, g => g.Sum(p => p.Value) / recordDays);
+            var incomplete = days.Values.SelectMany(d => d.Incomplete).ToHashSet();
+            var ulDays = (await catalog.NutrientsAsync()).ToDictionary(
+                n => n.Code,
+                n => targets.Get(n.Code)?.Limit is { } limit ? days.Values.Count(d => d.Amount(n.Code) > limit) : 0);
+            rows = await RowsAsync(average, incomplete, targets, ulDays);
+            averages = new WeeklyAveragesDto(
+                new AverageEnergyDto((int)RoundingPolicy.Round(average.GetValueOrDefault(NutrientCodes.Energy), 0), targets.EnergyKcal),
+                PfcOf(average), rows);
+            if (!insufficient)
+            {
+                scores = ScoresFor(average, incomplete, MainMealProteins(days.Values), targets);
+            }
+        }
+
+        return new WeeklyDashboardDto(
+            end, start, recordDays, insufficient, averages, scores, series, await RemainingMenusAsync(), NoticesOf(rows));
+    }
+
+    private async Task<List<NutrientStatusDto>> RowsAsync(
+        IReadOnlyDictionary<string, decimal> amounts, IReadOnlySet<string> incomplete, ResolvedTargets targets, IReadOnlyDictionary<string, int>? ulDays) =>
+        (await catalog.NutrientsAsync()).Select(n =>
+        {
+            var view = targets.Get(n.Code);
+            var amount = amounts.GetValueOrDefault(n.Code);
+            var (rate, status) = Evaluate(amount, view);
+            return new NutrientStatusDto(
+                n.Code, n.Name, n.Unit, SnapshotCalculator.ForDisplay(amount, n.Unit),
+                ToDto(view), rate, status, incomplete.Contains(n.Code) && !n.IsReference, n.IsReference,
+                ulDays?.GetValueOrDefault(n.Code));
+        }).ToList();
+
+    private static PfcSummaryDto PfcOf(IReadOnlyDictionary<string, decimal> amounts)
+    {
+        decimal Get(string code) => amounts.GetValueOrDefault(code);
+        var pfc = PfcCalculator.Calculate(Get(NutrientCodes.Protein), Get(NutrientCodes.Fat), Get(NutrientCodes.Carbohydrate));
+        return new PfcSummaryDto(
+            SnapshotCalculator.ForDisplay(Get(NutrientCodes.Protein), "g"),
+            SnapshotCalculator.ForDisplay(Get(NutrientCodes.Fat), "g"),
+            SnapshotCalculator.ForDisplay(Get(NutrientCodes.Carbohydrate), "g"),
+            new PfcRatioPctDto(pfc.ProteinDisplay, pfc.FatDisplay, pfc.CarbDisplay));
+    }
+
+    private async Task<List<RemainingMenuDto>> RemainingMenusAsync() =>
+        (await menus.ListAsync())
+            .Where(m => m.Remaining.Ratio > 0m)
+            .Select(m => new RemainingMenuDto(m.Id, m.Name, m.Remaining.Ratio, m.Remaining.Servings, m.ServingLabel))
+            .ToList();
+
+    private static List<DashboardNoticeDto> NoticesOf(IEnumerable<NutrientStatusDto> rows)
+    {
+        var incomplete = rows.Where(r => r.IsIncomplete).Select(r => r.Code).ToList();
+        return incomplete.Count == 0 ? [] : [new DashboardNoticeDto("INCOMPLETE_NUTRIENT", incomplete)];
     }
 
     // ---- 摂取量の集計 ----
@@ -164,9 +233,9 @@ public class DashboardService(
         ? new ScoreDto(v, ScoreCalculator.Band(v, settings) switch { ScoreBand.Good => "GOOD", ScoreBand.Fair => "FAIR", _ => "LOW" }, false, hasIncomplete)
         : new ScoreDto(null, null, false, hasIncomplete);
 
-    private static ScoresDto EmptyScores()
+    private static ScoresDto EmptyScores(bool insufficientData = false)
     {
-        var none = new ScoreDto(null, null, false, false);
+        var none = new ScoreDto(null, null, insufficientData, false);
         return new ScoresDto(none, none, none);
     }
 
