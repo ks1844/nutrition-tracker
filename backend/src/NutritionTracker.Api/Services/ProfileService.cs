@@ -15,6 +15,14 @@ public class ProfileService(AppDbContext db, AppClock clock, IOptions<NutritionO
     private static readonly string[] Sexes = ["male", "female"];
     private static readonly string[] Goals = ["skin", "muscle", "both"];
 
+    /// <summary>API-04 プロフィール取得。未登録は 404（画面はプロフィール設定へ誘導する）。</summary>
+    public async Task<ProfileDto> GetAsync()
+    {
+        var profile = await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == User.FixedUserId)
+            ?? throw new NotFoundException("プロフィールが未登録です");
+        return await ToDtoAsync(profile);
+    }
+
     /// <summary>API-05 プロフィール登録・更新（upsert）。</summary>
     public async Task<ProfileDto> SaveAsync(ProfileInput input)
     {

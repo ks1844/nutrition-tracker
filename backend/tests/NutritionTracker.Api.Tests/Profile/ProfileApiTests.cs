@@ -2,11 +2,12 @@ using System.Net;
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
 using NutritionTracker.Api.Dtos;
+using NutritionTracker.Api.Entities;
 using NutritionTracker.Api.Tests.Infrastructure;
 
 namespace NutritionTracker.Api.Tests.Profile;
 
-/// <summary>API-05 プロフィール更新（docs/09.API仕様.md §4）。「今日」は 2026-10-17 に固定。</summary>
+/// <summary>API-04 / API-05 プロフィール（docs/09.API仕様.md §4）。「今日」は 2026-10-17 に固定。</summary>
 [Collection(ApiCollection.Name)]
 public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
 {
@@ -105,5 +106,51 @@ public class ProfileApiTests(ApiFixture fixture) : IAsyncLifetime
 
         Assert.Equal(170.0m, p.HeightCm);
         Assert.Equal(65.0m, p.WeightKg); // 64.95 → HALF_UP で 65.0
+    }
+
+    // ---- GET ----
+    [Fact]
+    public async Task Get_NotRegistered_Returns404()
+    {
+        var res = await fixture.Client.GetAsync("/api/profile");
+
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+        Assert.Equal("NOT_FOUND", (await res.Content.ReadFromJsonAsync<ApiErrorResponse>())!.Code);
+    }
+
+    [Fact]
+    public async Task Get_AfterPut_ReturnsSameContent()
+    {
+        await PutAsync(Valid(energyOverride: 1900));
+
+        var p = (await fixture.Client.GetFromJsonAsync<ProfileDto>("/api/profile"))!;
+
+        Assert.Equal(new DateOnly(1996, 4, 1), p.BirthDate);
+        Assert.Equal(new EnergyTargetDto(2155, 1900, 1900), p.Targets.EnergyKcal);
+    }
+
+    [Fact]
+    public async Task Get_IncludesNutrientTargets_MatchingSexAndAge()
+    {
+        await PutAsync(Valid()); // 男性・30 歳
+        await fixture.WithDbAsync(async db =>
+        {
+            var vitC = await db.Nutrients.SingleAsync(n => n.Code == "VITC");
+            var zn = await db.Nutrients.SingleAsync(n => n.Code == "ZN");
+            // テスト用の仮の値（食事摂取基準の公式値ではない）
+            db.NutrientTargets.AddRange(
+                new NutrientTarget { NutrientId = vitC.Id, Sex = "male", AgeMin = 18, AgeMax = 49, Kind = "RDA", Amount = 100m, Basis = "PER_DAY" },
+                new NutrientTarget { NutrientId = vitC.Id, Sex = "female", AgeMin = 18, AgeMax = 49, Kind = "RDA", Amount = 90m, Basis = "PER_DAY" },
+                new NutrientTarget { NutrientId = zn.Id, Sex = "all", AgeMin = 0, AgeMax = 999, Kind = "UL", Amount = 40m, Basis = "PER_DAY" },
+                new NutrientTarget { NutrientId = zn.Id, Sex = "male", AgeMin = 50, AgeMax = 999, Kind = "RDA", Amount = 11m, Basis = "PER_DAY" });
+            await db.SaveChangesAsync();
+        });
+
+        var p = (await fixture.Client.GetFromJsonAsync<ProfileDto>("/api/profile"))!;
+
+        // 男性 30 歳に該当する 2 件（性別が違う行・年齢が合わない行は含まれない）。栄養素の表示順（ZN → VITC）
+        Assert.Equal(
+            new[] { new NutrientTargetDto("ZN", "UL", 40m, "PER_DAY"), new NutrientTargetDto("VITC", "RDA", 100m, "PER_DAY") },
+            p.Targets.Nutrients.ToArray());
     }
 }
