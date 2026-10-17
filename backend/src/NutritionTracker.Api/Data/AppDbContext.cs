@@ -29,6 +29,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<MenuItem> MenuItems => Set<MenuItem>();
 
+    public DbSet<MealRecord> MealRecords => Set<MealRecord>();
+
+    public DbSet<MealRecordItem> MealRecordItems => Set<MealRecordItem>();
+
+    public DbSet<MealRecordItemNutrient> MealRecordItemNutrients => Set<MealRecordItemNutrient>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);

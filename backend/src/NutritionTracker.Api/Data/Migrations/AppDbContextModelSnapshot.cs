@@ -248,6 +248,180 @@ namespace NutritionTracker.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("NutritionTracker.Api.Entities.MealRecord", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("ID");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime")
+                        .HasColumnName("作成日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateOnly>("EatenOn")
+                        .HasColumnType("date")
+                        .HasColumnName("食事日");
+
+                    b.Property<string>("MealType")
+                        .IsRequired()
+                        .HasColumnType("varchar(10)")
+                        .HasColumnName("食事区分");
+
+                    b.Property<string>("Memo")
+                        .HasColumnType("varchar(500)")
+                        .HasColumnName("メモ");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("datetime")
+                        .HasColumnName("更新日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlComputedColumn(b.Property<DateTime>("UpdatedAt"));
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ユーザーID");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "EatenOn")
+                        .HasDatabaseName("IX_食事記録_ユーザーID_食事日");
+
+                    b.ToTable("T食事記録", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_食事記録_食事区分", "`食事区分` IN ('breakfast','lunch','dinner','snack')");
+                        });
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.MealRecordItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("ID");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal?>("AmountG")
+                        .HasColumnType("decimal(8,2)")
+                        .HasColumnName("重量g");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime")
+                        .HasColumnName("作成日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<long?>("FoodId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("食材ID");
+
+                    b.Property<string>("InputMode")
+                        .IsRequired()
+                        .HasColumnType("varchar(10)")
+                        .HasColumnName("入力方式");
+
+                    b.Property<decimal>("InputValue")
+                        .HasColumnType("decimal(10,3)")
+                        .HasColumnName("入力値");
+
+                    b.Property<long>("MealRecordId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("食事記録ID");
+
+                    b.Property<long?>("MenuId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("メニューID");
+
+                    b.Property<decimal?>("PortionRatio")
+                        .HasColumnType("decimal(9,6)")
+                        .HasColumnName("食べた割合");
+
+                    b.Property<long?>("UnitId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("食材単位ID");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("datetime")
+                        .HasColumnName("更新日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlComputedColumn(b.Property<DateTime>("UpdatedAt"));
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FoodId");
+
+                    b.HasIndex("MealRecordId")
+                        .HasDatabaseName("IX_食事記録項目_食事記録ID");
+
+                    b.HasIndex("MenuId")
+                        .HasDatabaseName("IX_食事記録項目_メニューID");
+
+                    b.HasIndex("UnitId");
+
+                    b.ToTable("T食事記録項目", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_食事記録項目_メニュー", "`メニューID` IS NULL OR (`入力方式` IN ('RATIO','SERVING','GRAM') AND `食べた割合` IS NOT NULL AND `食べた割合` > 0)");
+
+                            t.HasCheckConstraint("CK_食事記録項目_入力値", "`入力値` > 0");
+
+                            t.HasCheckConstraint("CK_食事記録項目_入力方式", "`入力方式` IN ('RATIO','SERVING','GRAM','UNIT')");
+
+                            t.HasCheckConstraint("CK_食事記録項目_対象", "(`メニューID` IS NULL) <> (`食材ID` IS NULL)");
+
+                            t.HasCheckConstraint("CK_食事記録項目_食材", "`食材ID` IS NULL OR (`入力方式` IN ('GRAM','UNIT') AND `重量g` IS NOT NULL AND `重量g` > 0)");
+                        });
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.MealRecordItemNutrient", b =>
+                {
+                    b.Property<long>("MealRecordItemId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("食事記録項目ID");
+
+                    b.Property<short>("NutrientId")
+                        .HasColumnType("smallint")
+                        .HasColumnName("栄養素ID");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(14,4)")
+                        .HasColumnName("量");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime")
+                        .HasColumnName("作成日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<bool>("IsIncomplete")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("tinyint(1)")
+                        .HasDefaultValue(false)
+                        .HasColumnName("不完全フラグ");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("datetime")
+                        .HasColumnName("更新日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlComputedColumn(b.Property<DateTime>("UpdatedAt"));
+
+                    b.HasKey("MealRecordItemId", "NutrientId");
+
+                    b.HasIndex("NutrientId");
+
+                    b.ToTable("T食事記録項目栄養素", (string)null);
+                });
+
             modelBuilder.Entity("NutritionTracker.Api.Entities.Menu", b =>
                 {
                     b.Property<long>("Id")
@@ -968,6 +1142,75 @@ namespace NutritionTracker.Api.Data.Migrations
                     b.Navigation("Food");
                 });
 
+            modelBuilder.Entity("NutritionTracker.Api.Entities.MealRecord", b =>
+                {
+                    b.HasOne("NutritionTracker.Api.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_食事記録_ユーザー");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.MealRecordItem", b =>
+                {
+                    b.HasOne("NutritionTracker.Api.Entities.Food", "Food")
+                        .WithMany()
+                        .HasForeignKey("FoodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_食事記録項目_食材");
+
+                    b.HasOne("NutritionTracker.Api.Entities.MealRecord", "MealRecord")
+                        .WithMany("Items")
+                        .HasForeignKey("MealRecordId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_食事記録項目_食事記録");
+
+                    b.HasOne("NutritionTracker.Api.Entities.Menu", "Menu")
+                        .WithMany()
+                        .HasForeignKey("MenuId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_食事記録項目_メニュー");
+
+                    b.HasOne("NutritionTracker.Api.Entities.FoodUnit", "Unit")
+                        .WithMany()
+                        .HasForeignKey("UnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_食事記録項目_食材単位");
+
+                    b.Navigation("Food");
+
+                    b.Navigation("MealRecord");
+
+                    b.Navigation("Menu");
+
+                    b.Navigation("Unit");
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.MealRecordItemNutrient", b =>
+                {
+                    b.HasOne("NutritionTracker.Api.Entities.MealRecordItem", "MealRecordItem")
+                        .WithMany("Nutrients")
+                        .HasForeignKey("MealRecordItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_食事記録項目栄養素_食事記録項目");
+
+                    b.HasOne("NutritionTracker.Api.Entities.Nutrient", "Nutrient")
+                        .WithMany()
+                        .HasForeignKey("NutrientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_食事記録項目栄養素_栄養素");
+
+                    b.Navigation("MealRecordItem");
+
+                    b.Navigation("Nutrient");
+                });
+
             modelBuilder.Entity("NutritionTracker.Api.Entities.Menu", b =>
                 {
                     b.HasOne("NutritionTracker.Api.Entities.User", "User")
@@ -1040,6 +1283,16 @@ namespace NutritionTracker.Api.Data.Migrations
                     b.Navigation("Nutrients");
 
                     b.Navigation("Units");
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.MealRecord", b =>
+                {
+                    b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.MealRecordItem", b =>
+                {
+                    b.Navigation("Nutrients");
                 });
 
             modelBuilder.Entity("NutritionTracker.Api.Entities.Menu", b =>
