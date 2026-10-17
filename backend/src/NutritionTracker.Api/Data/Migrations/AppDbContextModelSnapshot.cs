@@ -603,6 +603,186 @@ namespace NutritionTracker.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("NutritionTracker.Api.Entities.NutrientTarget", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("ID");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<short>("AgeMax")
+                        .HasColumnType("smallint")
+                        .HasColumnName("年齢上限");
+
+                    b.Property<short>("AgeMin")
+                        .HasColumnType("smallint")
+                        .HasColumnName("年齢下限");
+
+                    b.Property<decimal>("Amount")
+                        .HasColumnType("decimal(12,4)")
+                        .HasColumnName("目標値");
+
+                    b.Property<string>("Basis")
+                        .IsRequired()
+                        .HasColumnType("varchar(15)")
+                        .HasColumnName("単位基準");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime")
+                        .HasColumnName("作成日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("varchar(10)")
+                        .HasColumnName("種別");
+
+                    b.Property<short>("NutrientId")
+                        .HasColumnType("smallint")
+                        .HasColumnName("栄養素ID");
+
+                    b.Property<string>("Sex")
+                        .IsRequired()
+                        .HasColumnType("varchar(10)")
+                        .HasColumnName("性別");
+
+                    b.Property<string>("SourceNote")
+                        .HasColumnType("varchar(200)")
+                        .HasColumnName("出典メモ");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("datetime")
+                        .HasColumnName("更新日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlComputedColumn(b.Property<DateTime>("UpdatedAt"));
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NutrientId", "Sex", "AgeMin", "AgeMax", "Kind")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_栄養目標_条件");
+
+                    b.ToTable("T栄養目標", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_栄養目標_単位基準", "`単位基準` IN ('PER_DAY','PER_KG_BW','PCT_ENERGY')");
+
+                            t.HasCheckConstraint("CK_栄養目標_年齢", "`年齢下限` <= `年齢上限`");
+
+                            t.HasCheckConstraint("CK_栄養目標_性別", "`性別` IN ('male','female','all')");
+
+                            t.HasCheckConstraint("CK_栄養目標_種別", "`種別` IN ('RDA','AI','DG_MIN','DG_MAX','UL')");
+
+                            t.HasCheckConstraint("CK_栄養目標_非負", "`目標値` >= 0");
+                        });
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.User", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("ID");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime")
+                        .HasColumnName("作成日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("datetime")
+                        .HasColumnName("更新日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlComputedColumn(b.Property<DateTime>("UpdatedAt"));
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Tユーザー", (string)null);
+
+                    b.HasData(
+                        new
+                        {
+                            Id = 1L,
+                            CreatedAt = new DateTime(2026, 10, 17, 0, 0, 0, 0, DateTimeKind.Unspecified),
+                            UpdatedAt = new DateTime(2026, 10, 17, 0, 0, 0, 0, DateTimeKind.Unspecified)
+                        });
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.UserProfile", b =>
+                {
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ユーザーID");
+
+                    b.Property<short>("ActivityLevel")
+                        .HasColumnType("smallint")
+                        .HasColumnName("活動レベル");
+
+                    b.Property<DateOnly>("BirthDate")
+                        .HasColumnType("date")
+                        .HasColumnName("生年月日");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime")
+                        .HasColumnName("作成日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<int?>("EnergyTargetKcal")
+                        .HasColumnType("int")
+                        .HasColumnName("エネルギー目標kcal");
+
+                    b.Property<string>("Goal")
+                        .IsRequired()
+                        .HasColumnType("varchar(10)")
+                        .HasColumnName("目的");
+
+                    b.Property<decimal>("HeightCm")
+                        .HasColumnType("decimal(4,1)")
+                        .HasColumnName("身長cm");
+
+                    b.Property<string>("Sex")
+                        .IsRequired()
+                        .HasColumnType("varchar(10)")
+                        .HasColumnName("性別");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("datetime")
+                        .HasColumnName("更新日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlComputedColumn(b.Property<DateTime>("UpdatedAt"));
+
+                    b.Property<decimal>("WeightKg")
+                        .HasColumnType("decimal(4,1)")
+                        .HasColumnName("体重kg");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("Tユーザープロフィール", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ユーザープロフィール_性別", "`性別` IN ('male','female')");
+
+                            t.HasCheckConstraint("CK_ユーザープロフィール_活動レベル", "`活動レベル` BETWEEN 1 AND 4");
+
+                            t.HasCheckConstraint("CK_ユーザープロフィール_目標", "`エネルギー目標kcal` IS NULL OR `エネルギー目標kcal` > 0");
+
+                            t.HasCheckConstraint("CK_ユーザープロフィール_目的", "`目的` IN ('skin','muscle','both')");
+
+                            t.HasCheckConstraint("CK_ユーザープロフィール_身体", "`身長cm` > 0 AND `体重kg` > 0");
+                        });
+                });
+
             modelBuilder.Entity("NutritionTracker.Api.Entities.FoodAlias", b =>
                 {
                     b.HasOne("NutritionTracker.Api.Entities.Food", "Food")
@@ -646,6 +826,30 @@ namespace NutritionTracker.Api.Data.Migrations
                         .HasConstraintName("FK_食材単位_食材");
 
                     b.Navigation("Food");
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.NutrientTarget", b =>
+                {
+                    b.HasOne("NutritionTracker.Api.Entities.Nutrient", "Nutrient")
+                        .WithMany()
+                        .HasForeignKey("NutrientId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_栄養目標_栄養素");
+
+                    b.Navigation("Nutrient");
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.UserProfile", b =>
+                {
+                    b.HasOne("NutritionTracker.Api.Entities.User", "User")
+                        .WithOne()
+                        .HasForeignKey("NutritionTracker.Api.Entities.UserProfile", "UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_ユーザープロフィール_ユーザー");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("NutritionTracker.Api.Entities.Food", b =>

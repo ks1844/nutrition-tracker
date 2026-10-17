@@ -19,6 +19,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<FoodUnit> FoodUnits => Set<FoodUnit>();
 
+    public DbSet<User> Users => Set<User>();
+
+    public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
+
+    public DbSet<NutrientTarget> NutrientTargets => Set<NutrientTarget>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
