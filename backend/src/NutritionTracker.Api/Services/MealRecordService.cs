@@ -69,6 +69,18 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
         return await ToSaveResultAsync(record.Id);
     }
 
+    /// <summary>API-16 食事記録の削除（物理削除。項目・スナップショットは DB のカスケードで消える）。存在しなければ 404。</summary>
+    public async Task DeleteAsync(long id)
+    {
+        var deleted = await db.MealRecords
+            .Where(r => r.Id == id && r.UserId == User.FixedUserId)
+            .ExecuteDeleteAsync();
+        if (deleted == 0)
+        {
+            throw new NotFoundException();
+        }
+    }
+
     /// <summary>API-13 日別の食事記録。栄養は保存済みスナップショットをそのまま返す（メニューを後から編集しても変わらない）。</summary>
     public async Task<MealRecordDayDto> GetByDateAsync(DateOnly? date)
     {

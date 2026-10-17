@@ -394,4 +394,43 @@ public class MealRecordsApiTests(ApiFixture fixture) : IAsyncLifetime
 
         Assert.Equal(1.2m, Assert.Single(updated.Warnings).TotalPortionRatio); // 置き換えた後の合計（古い 0.5 は含まない）
     }
+
+    // ---- API-16 削除 ----
+    [Fact]
+    public async Task AC_REC_007_Delete_RemovesItemsAndSnapshots_AndRestoresMenuRemaining()
+    {
+        var s = await SeedAsync();
+        var kept = await CreateAsync(new MealRecordInput(Day, "lunch", null, [MenuItem(s.Tonjiru.Id, "SERVING", 1m)]));
+        var target = await CreateAsync(Dinner(
+            MenuItem(s.Tonjiru.Id, "SERVING", 1.5m),
+            new MealRecordItemInput(null, s.Golden.Pork.Id, null, "GRAM", 150m)));
+        var before = (await fixture.Client.GetFromJsonAsync<MenuDetailDto>($"/api/menus/{s.Tonjiru.Id}"))!.Remaining;
+        Assert.Equal(0.6875m, before.Ratio);
+
+        var res = await fixture.Client.DeleteAsync($"/api/meal-records/{target.Id}");
+
+        Assert.Equal(HttpStatusCode.NoContent, res.StatusCode);
+        Assert.Equal(1, await fixture.WithDbAsync(db => db.MealRecords.CountAsync()));
+        Assert.Equal(1, await fixture.WithDbAsync(db => db.MealRecordItems.CountAsync())); // 項目もカスケードで消える
+        Assert.Equal(24, await fixture.WithDbAsync(db => db.MealRecordItemNutrients.CountAsync())); // スナップショットも消える
+        Assert.Equal([kept.Id], (await GetDayAsync(Day)).Records.Select(r => r.Id).ToList());
+        var after = (await fixture.Client.GetFromJsonAsync<MenuDetailDto>($"/api/menus/{s.Tonjiru.Id}"))!.Remaining;
+        Assert.Equal(new RemainingDto(0.875m, 7m, false), after); // 1.5 杯分が戻る
+    }
+
+    [Fact]
+    public async Task Delete_MissingRecord_Returns404()
+    {
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.DeleteAsync("/api/meal-records/999999")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Delete_Twice_SecondReturns404()
+    {
+        var s = await SeedAsync();
+        var created = await CreateAsync(Dinner(MenuItem(s.Tonjiru.Id, "SERVING", 1m)));
+        await fixture.Client.DeleteAsync($"/api/meal-records/{created.Id}");
+
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.DeleteAsync($"/api/meal-records/{created.Id}")).StatusCode);
+    }
 }

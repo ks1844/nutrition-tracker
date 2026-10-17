@@ -23,4 +23,12 @@ public class MealRecordsController(MealRecordService records) : ControllerBase
     /// <summary>API-15 食事記録の更新（全項目置換）</summary>
     [HttpPut("{id:long}")]
     public async Task<MealRecordSaveResultDto> Update(long id, [FromBody] MealRecordInput input) => await records.UpdateAsync(id, input);
+
+    /// <summary>API-16 食事記録の削除</summary>
+    [HttpDelete("{id:long}")]
+    public async Task<IActionResult> Delete(long id)
+    {
+        await records.DeleteAsync(id);
+        return NoContent();
+    }
 }
