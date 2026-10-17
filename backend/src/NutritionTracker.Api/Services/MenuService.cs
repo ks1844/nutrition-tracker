@@ -96,6 +96,21 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog)
         return await ToDetailAsync(id);
     }
 
+    /// <summary>
+    /// API-09 メニュー更新（全項目置換）。過去の記録は栄養スナップショットを持つため変わらない（ADR-0002）。
+    /// 論理削除済みは 404。
+    /// </summary>
+    public async Task<MenuDetailDto> UpdateAsync(long id, MenuInput input)
+    {
+        var menu = await db.Menus.Include(m => m.Items)
+            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == User.FixedUserId && m.DeletedAt == null)
+            ?? throw new NotFoundException();
+        var foods = await ValidateAsync(input);
+        Apply(menu, input, foods);
+        await db.SaveChangesAsync();
+        return await ToDetailAsync(menu.Id);
+    }
+
     /// <summary>有効（論理削除されていない）メニューを返す。無ければ 404。</summary>
     private async Task<Menu> RequireActiveAsync(long id) =>
         await db.Menus.FirstOrDefaultAsync(m => m.Id == id && m.UserId == User.FixedUserId && m.DeletedAt == null)

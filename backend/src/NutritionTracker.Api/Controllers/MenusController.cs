@@ -27,4 +27,8 @@ public class MenusController(MenuService menus) : ControllerBase
     /// <summary>API-08 メニュー詳細</summary>
     [HttpGet("{id:long}")]
     public async Task<MenuDetailDto> Get(long id) => await menus.GetAsync(id);
+
+    /// <summary>API-09 メニュー更新（全項目置換）</summary>
+    [HttpPut("{id:long}")]
+    public async Task<MenuDetailDto> Update(long id, [FromBody] MenuInput input) => await menus.UpdateAsync(id, input);
 }
