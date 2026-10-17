@@ -1,0 +1,22 @@
+<div
+  role="radiogroup"
+  [attr.aria-label]="label()"
+  class="flex gap-2"
+  [class]="stack() ? 'flex-col' : 'flex-wrap'"
+>
+  @for (o of options(); track o.value) {
+    <button
+      type="button"
+      class="chip"
+      [class.!justify-start]="stack()"
+      [class.!rounded-2xl]="stack()"
+      [class.!text-left]="stack()"
+      role="radio"
+      [attr.aria-checked]="o.value === value()"
+      [attr.aria-pressed]="o.value === value()"
+      (click)="changed.emit(o.value)"
+    >
+      {{ o.label }}
+    </button>
+  }
+</div>

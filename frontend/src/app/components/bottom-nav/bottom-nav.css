@@ -1,0 +1,11 @@
+.nav-item {
+  color: var(--color-ink-soft);
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+.nav-active {
+  color: #fff;
+  background: linear-gradient(135deg, #5b4bdb, #2f7bf5);
+  box-shadow: 0 6px 16px rgba(70, 70, 220, 0.35);
+}

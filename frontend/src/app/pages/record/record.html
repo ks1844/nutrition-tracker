@@ -1,0 +1,212 @@
+<app-page-header title="食事を記録" [back]="['/']" />
+
+<section class="glass flex flex-col gap-3 p-4" aria-label="日付と食事区分">
+  <div>
+    <label class="field-label" for="rc-date">日付</label>
+    <input
+      id="rc-date"
+      class="field"
+      type="date"
+      [value]="eatenOn()"
+      (change)="changeDate($any($event.target).value)"
+    />
+  </div>
+  <div role="radiogroup" aria-label="食事区分" class="grid grid-cols-4 gap-2">
+    @for (m of meals; track m) {
+      <button
+        type="button"
+        class="chip justify-center !px-1"
+        role="radio"
+        [attr.aria-pressed]="mealType() === m"
+        [attr.aria-checked]="mealType() === m"
+        (click)="changeMeal(m)"
+      >
+        {{ mealLabel[m] }}
+      </button>
+    }
+  </div>
+  <p
+    class="muted m-0 flex items-start gap-1.5 text-[0.75rem] font-bold"
+    role="status"
+    aria-live="polite"
+  >
+    <app-icon [name]="statusIcon()" [size]="14" class="mt-0.5 shrink-0" />
+    {{ statusText() }}
+  </p>
+</section>
+
+@if (!loading() && recentChips().length) {
+  <section class="glass p-4" aria-label="最近使った">
+    <h2 class="h-sub m-0 mb-2 flex items-center gap-1.5">
+      <app-icon name="clock" [size]="16" />
+      最近使った
+    </h2>
+    <div class="flex flex-wrap gap-2">
+      @for (c of recentChips(); track c.key) {
+        <button type="button" class="chip" (click)="c.add()">
+          <app-icon name="plus" [size]="14" />
+          {{ c.label }}
+        </button>
+      }
+    </div>
+  </section>
+}
+
+<section class="flex flex-col gap-3" aria-label="記録する項目">
+  @for (d of items(); track d.key; let i = $index) {
+    <article class="glass pop-in p-4">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <p class="muted m-0 text-[0.72rem] font-extrabold">
+            {{ d.kind === 'menu' ? 'メニュー' : '食材' }}
+          </p>
+          <h3 class="m-0 truncate text-[1.05rem] font-extrabold">{{ d.name }}</h3>
+        </div>
+        <button
+          type="button"
+          class="btn btn-sm btn-danger !min-h-9 !w-9 !p-0"
+          (click)="remove(d.key)"
+          [attr.aria-label]="d.name + 'を削除'"
+        >
+          <app-icon name="trash" [size]="15" />
+        </button>
+      </div>
+
+      @if (d.kind === 'menu') {
+        <div class="mt-3 flex flex-wrap gap-2" role="group" aria-label="量のクイック入力">
+          @for (c of chips; track c.label) {
+            <button
+              type="button"
+              class="chip !min-h-10 !px-3"
+              [attr.aria-pressed]="isChipActive(d, c)"
+              (click)="applyChip(d, c)"
+            >
+              {{ c.label }}
+            </button>
+          }
+        </div>
+        <div class="mt-3 flex items-center gap-2">
+          <input
+            class="field tabnum !w-28"
+            type="number"
+            inputmode="decimal"
+            min="0"
+            [step]="d.mode === 'GRAM' ? 10 : d.mode === 'RATIO' ? 5 : 0.5"
+            [value]="displayValue(d)"
+            (input)="setValue(d.key, $any($event.target).value)"
+            [attr.aria-label]="d.name + 'の量'"
+            [attr.aria-invalid]="!!errs()['items[' + i + '].inputValue']"
+          />
+          <span class="text-[0.95rem] font-extrabold">{{ unitText(d) }}</span>
+          <span class="muted tabnum ml-auto text-[0.8rem] font-bold">≒ {{ gramsText(d) }}</span>
+        </div>
+      } @else {
+        <div class="mt-3 flex items-center gap-2">
+          <input
+            class="field tabnum !w-28"
+            type="number"
+            inputmode="decimal"
+            min="0"
+            step="any"
+            [value]="d.value || ''"
+            (input)="setValue(d.key, $any($event.target).value)"
+            [attr.aria-label]="d.name + 'の量'"
+            [attr.aria-invalid]="!!errs()['items[' + i + '].inputValue']"
+          />
+          <span class="muted tabnum ml-auto text-[0.8rem] font-bold">≒ {{ gramsText(d) }}</span>
+        </div>
+        <div class="mt-2">
+          <app-chip-group
+            [options]="unitOptions(d)"
+            [value]="d.unitId"
+            [label]="d.name + 'の単位'"
+            (changed)="setUnit(d.key, $event)"
+          />
+        </div>
+      }
+      @if (errs()['items[' + i + '].inputValue']) {
+        <p class="field-error">{{ errs()['items[' + i + '].inputValue'] }}</p>
+      }
+
+      <div class="mt-2 flex items-center justify-between gap-2">
+        <span class="tabnum text-[0.95rem] font-extrabold">
+          約 {{ kcalText(d) }}
+          <span class="muted text-[0.75rem]">kcal</span>
+        </span>
+        @if (overPct(d); as o) {
+          <span class="badge st-over" role="alert">
+            <app-icon name="alert" [size]="13" />
+            合計{{ o }}%（保存はできます）
+          </span>
+        } @else if (d.kind === 'menu') {
+          <span class="muted text-[0.75rem] font-bold">残り {{ remainText(d) }}</span>
+        }
+      </div>
+    </article>
+  } @empty {
+    @if (loading()) {
+      <p class="muted text-center text-[0.9rem] font-bold">読み込み中…</p>
+    } @else {
+      <app-empty-state
+        icon="pot"
+        title="まだ項目がありません"
+        text="メニューか食材を追加してください。選んだ内容は自動で保存されます"
+      />
+    }
+  }
+</section>
+
+<div class="grid grid-cols-2 gap-2">
+  <button type="button" class="btn" (click)="menuPicker.set(true)">
+    <app-icon name="pot" [size]="18" />
+    メニューから
+  </button>
+  <button type="button" class="btn" (click)="foodDialog.set(true)">
+    <app-icon name="search" [size]="18" />
+    食材から
+  </button>
+</div>
+@if (errs()['items']) {
+  <p class="field-error">{{ errs()['items'] }}</p>
+}
+
+<section class="glass flex flex-col gap-3 p-4">
+  <div>
+    <label class="field-label" for="rc-memo">メモ（任意）</label>
+    <input
+      id="rc-memo"
+      class="field"
+      type="text"
+      maxlength="500"
+      [value]="memo()"
+      (input)="setMemo($any($event.target).value)"
+    />
+  </div>
+  <div class="flex items-baseline justify-between">
+    <span class="muted text-[0.85rem] font-bold">この食事の合計</span>
+    <span class="tabnum text-[1.5rem] font-extrabold">
+      約 {{ totalKcal() }}
+      <span class="muted ml-1 text-[0.8rem]">kcal</span>
+    </span>
+  </div>
+  <button
+    type="button"
+    class="btn btn-primary w-full"
+    [disabled]="saveState() === 'saving'"
+    (click)="done()"
+  >
+    完了して戻る
+  </button>
+  @if (recordIds().length) {
+    <button type="button" class="btn btn-danger w-full" (click)="removeRecord()">
+      この食事の記録を削除
+    </button>
+  }
+</section>
+
+@if (foodDialog()) {
+  <app-food-search-dialog (picked)="addFood($event)" (closed)="foodDialog.set(false)" />
+}
+@if (menuPicker()) {
+  <app-menu-picker-dialog (picked)="addMenu($event)" (closed)="menuPicker.set(false)" />
+}
