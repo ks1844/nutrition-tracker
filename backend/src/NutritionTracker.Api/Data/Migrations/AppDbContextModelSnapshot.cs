@@ -248,6 +248,146 @@ namespace NutritionTracker.Api.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("NutritionTracker.Api.Entities.Menu", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("ID");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateOnly?>("CookedOn")
+                        .HasColumnType("date")
+                        .HasColumnName("調理日");
+
+                    b.Property<decimal>("CookedTotalWeightG")
+                        .HasColumnType("decimal(8,1)")
+                        .HasColumnName("完成後重量g");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime")
+                        .HasColumnName("作成日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("datetime")
+                        .HasColumnName("削除日時");
+
+                    b.Property<string>("Memo")
+                        .HasColumnType("varchar(500)")
+                        .HasColumnName("メモ");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("名称");
+
+                    b.Property<string>("ServingLabel")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("varchar(20)")
+                        .HasDefaultValue("お椀")
+                        .HasColumnName("杯ラベル");
+
+                    b.Property<decimal>("Servings")
+                        .HasColumnType("decimal(5,1)")
+                        .HasColumnName("杯数");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("datetime")
+                        .HasColumnName("更新日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlComputedColumn(b.Property<DateTime>("UpdatedAt"));
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("ユーザーID");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "DeletedAt")
+                        .HasDatabaseName("IX_メニュー_ユーザーID_削除日時");
+
+                    b.ToTable("Tメニュー", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_メニュー_完成後重量", "`完成後重量g` > 0");
+
+                            t.HasCheckConstraint("CK_メニュー_杯数", "`杯数` > 0");
+                        });
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.MenuItem", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("ID");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<decimal>("AmountG")
+                        .HasColumnType("decimal(8,2)")
+                        .HasColumnName("重量g");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime")
+                        .HasColumnName("作成日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<long>("FoodId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("食材ID");
+
+                    b.Property<long>("MenuId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("メニューID");
+
+                    b.Property<decimal>("Quantity")
+                        .HasColumnType("decimal(8,2)")
+                        .HasColumnName("数量");
+
+                    b.Property<int>("SortOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("並び順");
+
+                    b.Property<long?>("UnitId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("食材単位ID");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("datetime")
+                        .HasColumnName("更新日時")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    MySqlPropertyBuilderExtensions.UseMySqlComputedColumn(b.Property<DateTime>("UpdatedAt"));
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FoodId");
+
+                    b.HasIndex("MenuId")
+                        .HasDatabaseName("IX_メニュー食材_メニューID");
+
+                    b.HasIndex("UnitId");
+
+                    b.ToTable("Tメニュー食材", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_メニュー食材_換算", "`食材単位ID` IS NOT NULL OR `重量g` = `数量`");
+
+                            t.HasCheckConstraint("CK_メニュー食材_数量", "`数量` > 0");
+
+                            t.HasCheckConstraint("CK_メニュー食材_重量", "`重量g` > 0");
+                        });
+                });
+
             modelBuilder.Entity("NutritionTracker.Api.Entities.Nutrient", b =>
                 {
                     b.Property<short>("Id")
@@ -828,6 +968,47 @@ namespace NutritionTracker.Api.Data.Migrations
                     b.Navigation("Food");
                 });
 
+            modelBuilder.Entity("NutritionTracker.Api.Entities.Menu", b =>
+                {
+                    b.HasOne("NutritionTracker.Api.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_メニュー_ユーザー");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.MenuItem", b =>
+                {
+                    b.HasOne("NutritionTracker.Api.Entities.Food", "Food")
+                        .WithMany()
+                        .HasForeignKey("FoodId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_メニュー食材_食材");
+
+                    b.HasOne("NutritionTracker.Api.Entities.Menu", "Menu")
+                        .WithMany("Items")
+                        .HasForeignKey("MenuId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_メニュー食材_メニュー");
+
+                    b.HasOne("NutritionTracker.Api.Entities.FoodUnit", "Unit")
+                        .WithMany()
+                        .HasForeignKey("UnitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_メニュー食材_食材単位");
+
+                    b.Navigation("Food");
+
+                    b.Navigation("Menu");
+
+                    b.Navigation("Unit");
+                });
+
             modelBuilder.Entity("NutritionTracker.Api.Entities.NutrientTarget", b =>
                 {
                     b.HasOne("NutritionTracker.Api.Entities.Nutrient", "Nutrient")
@@ -859,6 +1040,11 @@ namespace NutritionTracker.Api.Data.Migrations
                     b.Navigation("Nutrients");
 
                     b.Navigation("Units");
+                });
+
+            modelBuilder.Entity("NutritionTracker.Api.Entities.Menu", b =>
+                {
+                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }
