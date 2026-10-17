@@ -16,6 +16,9 @@ public sealed record MenuInput(
     string? ServingLabel,
     IReadOnlyList<MenuItemInput>? Items);
 
+/// <summary>API-11 の任意のリクエスト。省略時、名前は「&lt;元の名前&gt;のコピー」、調理日は当日。</summary>
+public sealed record MenuDuplicateInput(string? Name, DateOnly? CookedOn);
+
 /// <summary>残量 = 1 − Σ食べた割合。<paramref name="IsOver"/> は記録が 100% を超えている。</summary>
 public sealed record RemainingDto(decimal Ratio, decimal Servings, bool IsOver);
 

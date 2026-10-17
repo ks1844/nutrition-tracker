@@ -7,7 +7,7 @@ using NutritionTracker.Domain.Nutrition;
 
 namespace NutritionTracker.Api.Services;
 
-public class MenuService(AppDbContext db, NutritionCatalog catalog)
+public class MenuService(AppDbContext db, NutritionCatalog catalog, AppClock clock)
 {
     private const int MaxNameLength = 100;
     private const int MaxLabelLength = 20;
@@ -109,6 +109,46 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog)
         Apply(menu, input, foods);
         await db.SaveChangesAsync();
         return await ToDetailAsync(menu.Id);
+    }
+
+    private const string CopySuffix = "のコピー";
+
+    /// <summary>
+    /// API-11 メニュー複製。食材・完成後重量・杯数・メモを複製する。記録は複製しない。
+    /// 名前の既定は「&lt;元の名前&gt;のコピー」、調理日の既定は当日。
+    /// </summary>
+    public async Task<MenuDetailDto> DuplicateAsync(long id, MenuDuplicateInput? input)
+    {
+        if (input?.Name is { } requested && (string.IsNullOrWhiteSpace(requested) || requested.Trim().Length > MaxNameLength))
+        {
+            throw new ValidationException([new ErrorDetail("name", $"1〜{MaxNameLength}文字で入力してください")]);
+        }
+        var source = await db.Menus.AsNoTracking().Include(m => m.Items)
+            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == User.FixedUserId && m.DeletedAt == null)
+            ?? throw new NotFoundException();
+
+        var name = input?.Name?.Trim()
+            ?? (source.Name.Length + CopySuffix.Length <= MaxNameLength ? source.Name : source.Name[..(MaxNameLength - CopySuffix.Length)]) + CopySuffix;
+        var copy = new Menu
+        {
+            UserId = User.FixedUserId,
+            Name = name,
+            CookedOn = input?.CookedOn ?? clock.Today,
+            Memo = source.Memo,
+            CookedTotalWeightG = source.CookedTotalWeightG,
+            Servings = source.Servings,
+            ServingLabel = source.ServingLabel,
+        };
+        foreach (var item in source.Items.OrderBy(i => i.SortOrder))
+        {
+            copy.Items.Add(new MenuItem
+            {
+                FoodId = item.FoodId, UnitId = item.UnitId, Quantity = item.Quantity, AmountG = item.AmountG, SortOrder = item.SortOrder,
+            });
+        }
+        db.Menus.Add(copy);
+        await db.SaveChangesAsync();
+        return await ToDetailAsync(copy.Id);
     }
 
     /// <summary>API-10 メニュー削除（論理削除）。記録済みの食事記録項目は残る。存在しない・削除済みは 404。</summary>

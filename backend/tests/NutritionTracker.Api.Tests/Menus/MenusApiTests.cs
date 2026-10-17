@@ -471,4 +471,63 @@ public class MenusApiTests(ApiFixture fixture) : IAsyncLifetime
         Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.DeleteAsync($"/api/menus/{created.Id}")).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.DeleteAsync("/api/menus/999999")).StatusCode);
     }
+
+    // ---- API-11 複製 ----
+    [Fact]
+    public async Task AC_MENU_006_Duplicate_CopiesMenuWithoutRecords()
+    {
+        var g = await SeedAsync();
+        var created = (await (await PostAsync(Tonjiru(g) with { Memo = "白だし少なめ" })).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        await AddRecordedPortionAsync(created.Id, 0.125m);
+
+        var res = await fixture.Client.PostAsync($"/api/menus/{created.Id}/duplicate", null);
+
+        Assert.Equal(HttpStatusCode.Created, res.StatusCode);
+        var copy = (await res.Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        Assert.NotEqual(created.Id, copy.Id);
+        Assert.Equal($"/api/menus/{copy.Id}", res.Headers.Location!.OriginalString);
+        Assert.Equal("豚汁のコピー", copy.Name);
+        Assert.Equal(ApiFixture.Today, copy.CookedOn); // 既定は当日
+        Assert.Equal(("白だし少なめ", 2400m, 8m, "お椀"), (copy.Memo, copy.CookedTotalWeightG, copy.Servings, copy.ServingLabel));
+        Assert.Equal(created.Items.Select(i => (i.FoodId, i.UnitId, i.Quantity, i.AmountG)), copy.Items.Select(i => (i.FoodId, i.UnitId, i.Quantity, i.AmountG)));
+        Assert.Equal(created.Nutrients, copy.Nutrients);
+        Assert.Equal(new RemainingDto(1.000000m, 8.00m, false), copy.Remaining); // 記録は複製されない
+        Assert.Equal(0, await fixture.WithDbAsync(db => db.MealRecordItems.CountAsync(i => i.MenuId == copy.Id)));
+        Assert.Equal(1, await fixture.WithDbAsync(db => db.MealRecordItems.CountAsync())); // 元の記録はそのまま
+    }
+
+    [Fact]
+    public async Task Duplicate_WithNameAndCookedOn_UsesThem()
+    {
+        var g = await SeedAsync();
+        var created = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+
+        var res = await fixture.Client.PostAsJsonAsync($"/api/menus/{created.Id}/duplicate", new MenuDuplicateInput(" 豚汁（来週） ", new DateOnly(2026, 10, 24)));
+
+        var copy = (await res.Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        Assert.Equal(("豚汁（来週）", new DateOnly(2026, 10, 24)), (copy.Name, copy.CookedOn));
+    }
+
+    [Fact]
+    public async Task Duplicate_BlankName_Returns400()
+    {
+        var g = await SeedAsync();
+        var created = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+
+        var res = await fixture.Client.PostAsJsonAsync($"/api/menus/{created.Id}/duplicate", new MenuDuplicateInput("  ", null));
+
+        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        Assert.Equal(1, await fixture.WithDbAsync(db => db.Menus.CountAsync()));
+    }
+
+    [Fact]
+    public async Task Duplicate_MissingOrDeletedMenu_Returns404()
+    {
+        var g = await SeedAsync();
+        var created = (await (await PostAsync(Tonjiru(g))).Content.ReadFromJsonAsync<MenuDetailDto>())!;
+        await fixture.Client.DeleteAsync($"/api/menus/{created.Id}");
+
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.PostAsync($"/api/menus/{created.Id}/duplicate", null)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await fixture.Client.PostAsync("/api/menus/999999/duplicate", null)).StatusCode);
+    }
 }

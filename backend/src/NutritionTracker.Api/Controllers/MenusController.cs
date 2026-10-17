@@ -39,4 +39,12 @@ public class MenusController(MenuService menus) : ControllerBase
         await menus.DeleteAsync(id);
         return NoContent();
     }
+
+    /// <summary>API-11 メニュー複製（本文は任意）</summary>
+    [HttpPost("{id:long}/duplicate")]
+    public async Task<IActionResult> Duplicate(long id, [FromBody] MenuDuplicateInput? input = null)
+    {
+        var created = await menus.DuplicateAsync(id, input);
+        return Created($"/api/menus/{created.Id}", created);
+    }
 }
