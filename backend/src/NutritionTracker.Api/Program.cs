@@ -21,6 +21,8 @@ builder.Services.AddScoped<NutritionCatalog>();
 builder.Services.AddScoped<MenuService>();
 builder.Services.AddScoped<MealRecordService>();
 builder.Services.AddScoped<RecentItemService>();
+builder.Services.AddScoped<TargetService>();
+builder.Services.AddScoped<DashboardService>();
 
 builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(options =>

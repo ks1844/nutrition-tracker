@@ -49,12 +49,12 @@ public class ProfileService(AppDbContext db, AppClock clock, IOptions<NutritionO
         await db.UserProfiles.AsNoTracking().FirstOrDefaultAsync(p => p.UserId == User.FixedUserId)
         ?? throw new NotFoundException("プロフィールが未登録です");
 
-    /// <summary>エネルギー・タンパク質の目標（上書きがあれば優先）。</summary>
-    public (int AutoKcal, int EffectiveKcal, decimal ProteinG) ComputeTargets(UserProfile p)
+    /// <summary>エネルギー・タンパク質の目標（上書きがあれば優先）。年齢は <paramref name="on"/>（省略時は今日）時点の満年齢。</summary>
+    public (int AutoKcal, int EffectiveKcal, decimal ProteinG) ComputeTargets(UserProfile p, DateOnly? on = null)
     {
         var settings = options.Value.Targets.ToSettings();
         var sex = p.Sex == "male" ? Sex.Male : Sex.Female;
-        var age = TargetCalculator.AgeOn(p.BirthDate, clock.Today);
+        var age = TargetCalculator.AgeOn(p.BirthDate, on ?? clock.Today);
         var auto = TargetCalculator.EnergyKcal(sex, p.WeightKg, p.HeightCm, age, p.ActivityLevel, settings);
         var goal = Enum.Parse<Goal>(p.Goal, ignoreCase: true);
         return (auto, TargetCalculator.EffectiveEnergyKcal(auto, p.EnergyTargetKcal), TargetCalculator.ProteinG(p.WeightKg, goal, settings));
