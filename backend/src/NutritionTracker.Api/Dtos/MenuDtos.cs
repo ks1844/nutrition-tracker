@@ -54,3 +54,21 @@ public sealed record MenuDetailDto(
     IReadOnlyList<NutrientAmountDto> Nutrients,
     IReadOnlyList<NutrientAmountDto> PerServing,
     RemainingDto Remaining);
+
+/// <summary>API-12 の食材 1 行。<paramref name="EdibleG"/> は廃棄分を除いた可食部重量。栄養は参考表示。</summary>
+public sealed record MenuPreviewItemDto(
+    long FoodId,
+    string FoodName,
+    decimal AmountG,
+    decimal EdibleG,
+    IReadOnlyList<NutrientAmountDto> Nutrients);
+
+public sealed record PreviewWarningDto(string Code, long FoodId, string Message);
+
+/// <summary>API-12 のレスポンス。完成後重量・杯数が無いときは <c>ServingWeightG</c> と <c>PerServing</c> が null。</summary>
+public sealed record MenuPreviewDto(
+    IReadOnlyList<MenuPreviewItemDto> Items,
+    IReadOnlyList<NutrientAmountDto> Nutrients,
+    decimal? ServingWeightG,
+    IReadOnlyList<NutrientAmountDto>? PerServing,
+    IReadOnlyList<PreviewWarningDto> Warnings);

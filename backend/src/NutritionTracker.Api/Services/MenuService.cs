@@ -49,6 +49,46 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog)
         }).ToList();
     }
 
+    /// <summary>API-12 未保存メニューの栄養計算。DB は更新しない。無効な食材は 409 ではなく警告にする。</summary>
+    public async Task<MenuPreviewDto> PreviewAsync(MenuInput input)
+    {
+        var foods = await ValidateAsync(input, preview: true);
+        var codes = await catalog.CodesAsync();
+        var reference = await catalog.ReferenceCodesAsync();
+
+        var lines = new List<MenuLine>();
+        var items = new List<MenuPreviewItemDto>();
+        var warnings = new List<PreviewWarningDto>();
+        foreach (var item in input.Items!)
+        {
+            var food = foods[item.FoodId!.Value];
+            var unit = item.UnitId is { } unitId ? food.Units.Single(u => u.Id == unitId) : null;
+            var amountG = UnitConverter.ToAmountG(RoundingPolicy.Round(item.Quantity!.Value, 2), unit?.GramsPerUnit);
+            var data = NutritionCatalog.ToFoodData(food);
+            lines.Add(new MenuLine(data, amountG));
+            items.Add(new MenuPreviewItemDto(
+                food.Id, food.Name, amountG, FoodNutritionCalculator.EdibleG(data, amountG),
+                await catalog.ToDtosAsync(SnapshotCalculator.ForFood(FoodNutritionCalculator.Calculate(data, amountG, codes, reference)))));
+            if (!food.IsActive && warnings.All(w => w.FoodId != food.Id))
+            {
+                warnings.Add(new PreviewWarningDto("FOOD_INACTIVE", food.Id, $"{food.Name}は無効になっている食材です"));
+            }
+        }
+
+        var totals = MenuNutritionCalculator.Total(lines, codes, reference);
+        decimal? servingWeightG = null;
+        IReadOnlyList<NutrientAmountDto>? perServing = null;
+        if (input.CookedTotalWeightG is { } cooked && input.Servings is { } servings)
+        {
+            cooked = RoundingPolicy.Round(cooked, 1);
+            servings = RoundingPolicy.Round(servings, 1);
+            servingWeightG = PortionCalculator.ServingWeightG(cooked, servings);
+            var ratio = PortionCalculator.Ratio(InputMode.Serving, 1m, cooked, servings);
+            perServing = await catalog.ToDtosAsync(SnapshotCalculator.ForMenu(totals, ratio));
+        }
+        return new MenuPreviewDto(items, await catalog.ToDtosAsync(SnapshotCalculator.ForFood(totals)), servingWeightG, perServing, warnings);
+    }
+
     /// <summary>API-08 メニュー詳細。論理削除済みは 404。</summary>
     public async Task<MenuDetailDto> GetAsync(long id)
     {
@@ -64,22 +104,25 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog)
     // ---- 入力の検証と反映 ----
 
     /// <summary>入力を検証し、使う食材（栄養素つき）を返す。違反は 400（項目別）、無効な食材は 409。</summary>
-    private async Task<Dictionary<long, Food>> ValidateAsync(MenuInput input)
+    /// <param name="preview">プレビューのときは、名前・完成後重量・杯数を省略でき、無効な食材は 409 にせず <paramref name="inactive"/> に集める。</param>
+    private async Task<Dictionary<long, Food>> ValidateAsync(MenuInput input, bool preview = false)
     {
         var errors = new List<ErrorDetail>();
-        if (string.IsNullOrWhiteSpace(input.Name))
+        if (!preview && string.IsNullOrWhiteSpace(input.Name))
         {
             errors.Add(new ErrorDetail("name", "メニュー名を入力してください"));
         }
-        else if (input.Name.Trim().Length > MaxNameLength)
+        else if (input.Name is { } name && name.Trim().Length > MaxNameLength)
         {
             errors.Add(new ErrorDetail("name", $"{MaxNameLength}文字以内で入力してください"));
         }
-        if (input.CookedTotalWeightG is not { } cooked || RoundingPolicy.Round(cooked, 1) <= 0m || cooked >= 10_000_000m)
+        if ((!preview || input.CookedTotalWeightG is not null)
+            && (input.CookedTotalWeightG is not { } cooked || RoundingPolicy.Round(cooked, 1) <= 0m || cooked >= 10_000_000m))
         {
             errors.Add(new ErrorDetail("cookedTotalWeightG", "0より大きい値を指定してください"));
         }
-        if (input.Servings is not { } servings || RoundingPolicy.Round(servings, 1) <= 0m || servings >= 10_000m)
+        if ((!preview || input.Servings is not null)
+            && (input.Servings is not { } servings || RoundingPolicy.Round(servings, 1) <= 0m || servings >= 10_000m))
         {
             errors.Add(new ErrorDetail("servings", "0より大きい値を指定してください"));
         }
@@ -132,7 +175,7 @@ public class MenuService(AppDbContext db, NutritionCatalog catalog)
         {
             throw new ValidationException(errors);
         }
-        if (inactive.Count > 0)
+        if (!preview && inactive.Count > 0)
         {
             throw new ConflictException("無効になっている食材は使えません", inactive);
         }

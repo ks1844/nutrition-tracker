@@ -20,6 +20,10 @@ public class MenusController(MenuService menus) : ControllerBase
         return Created($"/api/menus/{created.Id}", created);
     }
 
+    /// <summary>API-12 未保存メニューの栄養計算（DB 更新なし）</summary>
+    [HttpPost("preview")]
+    public async Task<MenuPreviewDto> Preview([FromBody] MenuInput input) => await menus.PreviewAsync(input);
+
     /// <summary>API-08 メニュー詳細</summary>
     [HttpGet("{id:long}")]
     public async Task<MenuDetailDto> Get(long id) => await menus.GetAsync(id);
