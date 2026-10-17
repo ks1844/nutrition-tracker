@@ -5,7 +5,7 @@ using NutritionTracker.Api.Tests.Infrastructure;
 
 namespace NutritionTracker.Api.Tests.Foods;
 
-/// <summary>API-01 食材検索（docs/09.API仕様.md §3）。</summary>
+/// <summary>API-01 食材検索 / API-02 食材詳細（docs/09.API仕様.md §3）。</summary>
 [Collection(ApiCollection.Name)]
 public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
 {
@@ -117,5 +117,46 @@ public class FoodsApiTests(ApiFixture fixture) : IAsyncLifetime
         var res = await fixture.Client.GetAsync($"/api/foods?q={new string('あ', 51)}");
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task AC_FOOD_004_Detail_ReturnsNullForUnmeasuredNutrient()
+    {
+        long id = 0;
+        await fixture.WithDbAsync(async db => id = (await TestData.AddMisoAsync(db)).Id);
+
+        var res = await fixture.Client.GetAsync($"/api/foods/{id}");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var food = (await res.Content.ReadFromJsonAsync<FoodDetailDto>())!;
+        Assert.Equal("みそ", food.Name);
+        Assert.Equal("テスト（ダミー）", food.SourceVersion);
+        Assert.Contains("味噌", food.Aliases);
+        Assert.Equal(18m, food.Units.Single().GramsPerUnit);
+
+        var vitC = food.Nutrients.Single(n => n.Code == "VITC");
+        Assert.Null(vitC.Per100g); // 未測定は null（0 ではない）
+        Assert.Equal(0m, food.Nutrients.Single(n => n.Code == "VITA_RAE").Per100g); // 測定済みの 0
+        Assert.Equal(["PROT", "VITA_RAE", "VITC"], food.Nutrients.Select(n => n.Code).ToList()); // 表示順
+    }
+
+    [Fact]
+    public async Task Detail_InactiveFood_CanStillBeFetched()
+    {
+        long id = 0;
+        await fixture.WithDbAsync(async db => id = (await TestData.AddFoodAsync(db, "C1", "旧食材", "きゅうしょくざい", isActive: false)).Id);
+
+        var food = (await fixture.Client.GetFromJsonAsync<FoodDetailDto>($"/api/foods/{id}"))!;
+
+        Assert.False(food.IsActive);
+    }
+
+    [Fact]
+    public async Task Detail_UnknownId_Returns404()
+    {
+        var res = await fixture.Client.GetAsync("/api/foods/999999");
+
+        Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+        Assert.Equal("NOT_FOUND", (await res.Content.ReadFromJsonAsync<ApiErrorResponse>())!.Code);
     }
 }

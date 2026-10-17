@@ -12,4 +12,8 @@ public class FoodsController(FoodService foods) : ControllerBase
     [HttpGet]
     public async Task<FoodSearchResultDto> Search([FromQuery] string? q, [FromQuery] int? limit, [FromQuery] int? offset) =>
         await foods.SearchAsync(q, limit, offset);
+
+    /// <summary>API-02 食材詳細</summary>
+    [HttpGet("{id:long}")]
+    public async Task<FoodDetailDto> Get(long id) => await foods.GetAsync(id);
 }

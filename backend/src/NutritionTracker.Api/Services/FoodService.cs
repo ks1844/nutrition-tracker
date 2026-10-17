@@ -67,6 +67,27 @@ public class FoodService(AppDbContext db)
         return new FoodSearchResultDto(items, ordered.Count);
     }
 
+    /// <summary>API-02 食材詳細。無効な食材も取得できる。</summary>
+    public async Task<FoodDetailDto> GetAsync(long id)
+    {
+        var food = await db.Foods.AsNoTracking()
+            .Include(f => f.Units)
+            .Include(f => f.Aliases)
+            .Include(f => f.Nutrients).ThenInclude(n => n.Nutrient)
+            .FirstOrDefaultAsync(f => f.Id == id)
+            ?? throw new NotFoundException();
+
+        return new FoodDetailDto(
+            food.Id, food.FoodCode, food.Name, food.OfficialName, food.NameKana, food.FoodGroup, food.RefuseRatePct,
+            food.SourceVersion, food.IsActive,
+            food.Aliases.Select(a => a.Alias).OrderBy(a => a, StringComparer.Ordinal).ToList(),
+            ToUnits(food),
+            food.Nutrients
+                .OrderBy(n => n.Nutrient!.DisplayOrder)
+                .Select(n => new FoodNutrientDto(n.Nutrient!.Code, n.AmountPer100g, n.IsTrace, n.SourceNote))
+                .ToList());
+    }
+
     private static FoodSummaryDto ToSummary(Food f) =>
         new(f.Id, f.FoodCode, f.Name, f.NameKana, f.FoodGroup, f.RefuseRatePct, ToUnits(f));
 
