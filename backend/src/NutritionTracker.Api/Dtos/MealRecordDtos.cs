@@ -29,6 +29,9 @@ public sealed record MealRecordDto(
     string? Memo,
     IReadOnlyList<MealRecordItemDto> Items);
 
+/// <summary>API-13 のレスポンス。その日の記録を食事区分順に並べる。</summary>
+public sealed record MealRecordDayDto(DateOnly Date, IReadOnlyList<MealRecordDto> Records);
+
 /// <summary>メニューの記録が合計 100% を超えた警告（保存は妨げない。FR-034）。</summary>
 public sealed record MealRecordWarningDto(string Code, long MenuId, decimal TotalPortionRatio, string Message);
 

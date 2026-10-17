@@ -40,6 +40,16 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
         return await ToSaveResultAsync(record.Id);
     }
 
+    /// <summary>API-13 日別の食事記録。栄養は保存済みスナップショットをそのまま返す（メニューを後から編集しても変わらない）。</summary>
+    public async Task<MealRecordDayDto> GetByDateAsync(DateOnly? date)
+    {
+        if (date is not { } day)
+        {
+            throw new ValidationException("date", "日付を指定してください");
+        }
+        return new MealRecordDayDto(day, await LoadAsync(r => r.EatenOn == day));
+    }
+
     // ---- 入力の検証 ----
 
     /// <summary>入力を検証する。形式・範囲の違反は 400（項目別）、無効な食材は 409。</summary>

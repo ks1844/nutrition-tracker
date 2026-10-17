@@ -239,4 +239,57 @@ public class MealRecordsApiTests(ApiFixture fixture) : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
     }
+
+    // ---- API-13 日別取得 ----
+    private async Task<MealRecordDayDto> GetDayAsync(DateOnly date) =>
+        (await fixture.Client.GetFromJsonAsync<MealRecordDayDto>($"/api/meal-records?date={date:yyyy-MM-dd}"))!;
+
+    [Fact]
+    public async Task AC_REC_005_GetByDate_ReturnsRecordsInMealTypeOrder_OnlyForThatDate()
+    {
+        var s = await SeedAsync();
+        await CreateAsync(new MealRecordInput(Day, "snack", null, [MenuItem(s.Tonjiru.Id, "RATIO", 0.1m)]));
+        await CreateAsync(new MealRecordInput(Day, "breakfast", "朝", [MenuItem(s.Tonjiru.Id, "RATIO", 0.1m)]));
+        await CreateAsync(Dinner(MenuItem(s.Tonjiru.Id, "SERVING", 1m), new MealRecordItemInput(null, s.Golden.Pork.Id, null, "GRAM", 150m)));
+        await CreateAsync(new MealRecordInput(Day.AddDays(-1), "lunch", null, [MenuItem(s.Tonjiru.Id, "RATIO", 0.1m)]));
+
+        var day = await GetDayAsync(Day);
+
+        Assert.Equal(Day, day.Date);
+        Assert.Equal(["breakfast", "dinner", "snack"], day.Records.Select(r => r.MealType).ToList());
+        Assert.Equal("朝", day.Records[0].Memo);
+        var dinner = day.Records[1];
+        Assert.Equal([s.Tonjiru.Id, null], dinner.Items.Select(i => i.MenuId).ToList());
+        Assert.Equal(["豚汁", null], dinner.Items.Select(i => i.MenuName).ToList());
+        Assert.Equal([null, "豚こま肉"], dinner.Items.Select(i => i.FoodName).ToList());
+        Assert.Equal(24, dinner.Items[0].Nutrients.Count);
+    }
+
+    [Fact]
+    public async Task GetByDate_NoRecords_ReturnsEmptyList()
+    {
+        var day = await GetDayAsync(Day);
+
+        Assert.Empty(day.Records);
+    }
+
+    [Fact]
+    public async Task GetByDate_ReturnsSavedSnapshot_EvenAfterMenuIsEdited()
+    {
+        var s = await SeedAsync();
+        await CreateAsync(Dinner(MenuItem(s.Tonjiru.Id, "SERVING", 1m)));
+        await fixture.Client.PutAsJsonAsync($"/api/menus/{s.Tonjiru.Id}", new MenuInput(
+            "豚汁", null, null, 2400m, 8m, "お椀", [new MenuItemInput(s.Golden.Pork.Id, null, 100m)]));
+
+        var item = (await GetDayAsync(Day)).Records.Single().Items.Single();
+
+        Assert.Equal(11.4175m, Nutrient(item, "PROT").Amount); // 保存時の値（メニュー編集の影響を受けない）
+    }
+
+    [Fact]
+    public async Task GetByDate_MissingOrInvalidDate_Returns400()
+    {
+        Assert.Equal(HttpStatusCode.BadRequest, (await fixture.Client.GetAsync("/api/meal-records")).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await fixture.Client.GetAsync("/api/meal-records?date=2026-13-40")).StatusCode);
+    }
 }
