@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using NutritionTracker.Api.Data;
 using Testcontainers.MySql;
 
@@ -16,6 +18,9 @@ public sealed class ApiFixture : IAsyncLifetime
 {
     private readonly MySqlContainer _container = new MySqlBuilder("mysql:8.4").Build();
     private Factory? _factory;
+
+    /// <summary>テスト中の「今日」（Asia/Tokyo の 2026-10-17）。</summary>
+    public static readonly DateOnly Today = new(2026, 10, 17);
 
     public HttpClient Client { get; private set; } = null!;
 
@@ -88,6 +93,11 @@ public sealed class ApiFixture : IAsyncLifetime
                 ["ConnectionStrings:Default"] = connectionString,
                 ["Database:Password"] = "", // 接続文字列にパスワードが含まれているので、環境変数のパスワードで上書きしない
             }));
+            builder.ConfigureTestServices(services =>
+            {
+                services.RemoveAll<TimeProvider>();
+                services.AddSingleton<TimeProvider>(new FixedTimeProvider(new DateTimeOffset(2026, 10, 17, 12, 0, 0, TimeSpan.FromHours(9))));
+            });
         }
     }
 }

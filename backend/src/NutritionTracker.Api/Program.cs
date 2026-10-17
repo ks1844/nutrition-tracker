@@ -11,8 +11,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(DatabaseConnection.Build(builder.Configuration), new MySqlServerVersion(new Version(8, 4, 0))));
 
+builder.Services.Configure<NutritionOptions>(builder.Configuration.GetSection(NutritionOptions.Section));
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddScoped<AppClock>();
 builder.Services.AddScoped<NutrientService>();
 builder.Services.AddScoped<FoodService>();
+builder.Services.AddScoped<ProfileService>();
 
 builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(options =>
