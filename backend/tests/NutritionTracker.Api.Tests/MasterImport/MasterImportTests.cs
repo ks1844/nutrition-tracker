@@ -1,6 +1,11 @@
 using System.Net.Http.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using NutritionTracker.Api.Config;
 using NutritionTracker.Api.Dtos;
 using NutritionTracker.Api.Services.MasterImport;
 using NutritionTracker.Api.Tests.Infrastructure;
@@ -313,5 +318,93 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
         await ImportFailsAsync(); // 食材は正しくても、目標のエラーで全体を取り込まない
 
         Assert.Equal(0, await fixture.WithDbAsync(db => db.NutrientTargets.CountAsync()));
+    }
+}
+
+/// <summary>起動時の取り込み（<see cref="MasterImportHostedService"/>）。</summary>
+[Collection(ApiCollection.Name)]
+public sealed class MasterImportHostedServiceTests(ApiFixture fixture) : IAsyncLifetime, IDisposable
+{
+    private readonly string _root = Directory.CreateTempSubdirectory("master-host-").FullName;
+
+    public Task InitializeAsync() => fixture.ResetAsync();
+
+    public Task DisposeAsync() => Task.CompletedTask;
+
+    public void Dispose() => Directory.Delete(_root, recursive: true);
+
+    private const string FoodsCsv = "食品コード,名称,読み仮名,廃棄率,出典版\nF1,にんじん,にんじん,10,テスト（ダミー）\n";
+
+    private MasterImportHostedService Create(bool enabled, string path = "Master") => new(
+        fixture.Services.GetRequiredService<IServiceScopeFactory>(),
+        Options.Create(new NutritionOptions { MasterImport = new NutritionOptions.MasterImportOptions { Enabled = enabled, Path = path } }),
+        new FakeEnvironment(_root),
+        NullLogger<MasterImportHostedService>.Instance);
+
+    private void WriteFoods(string content)
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "Master"));
+        File.WriteAllText(Path.Combine(_root, "Master", MasterImportService.FoodsFile), content);
+    }
+
+    private Task<int> FoodCountAsync() => fixture.WithDbAsync(db => db.Foods.CountAsync());
+
+    [Fact]
+    public async Task Enabled_ImportsFromContentRootRelativePath()
+    {
+        WriteFoods(FoodsCsv);
+
+        await Create(enabled: true).StartAsync(CancellationToken.None);
+
+        Assert.Equal(1, await FoodCountAsync());
+    }
+
+    [Fact]
+    public async Task Disabled_DoesNothing()
+    {
+        WriteFoods(FoodsCsv);
+
+        await Create(enabled: false).StartAsync(CancellationToken.None);
+
+        Assert.Equal(0, await FoodCountAsync());
+    }
+
+    [Fact]
+    public async Task Enabled_WithoutCsv_StartsNormally()
+    {
+        await Create(enabled: true, path: "NoSuchFolder").StartAsync(CancellationToken.None);
+
+        Assert.Equal(0, await FoodCountAsync());
+    }
+
+    [Fact]
+    public async Task Enabled_WithInvalidCsv_FailsStartupAndWritesNothing()
+    {
+        WriteFoods("食品コード,名称,読み仮名,廃棄率,出典版\nF1,にんじん,ABC,10,\n");
+
+        await Assert.ThrowsAsync<MasterImportException>(() => Create(enabled: true).StartAsync(CancellationToken.None));
+
+        Assert.Equal(0, await FoodCountAsync());
+    }
+
+    [Fact]
+    public async Task Enabled_AbsolutePath_IsUsedAsIs()
+    {
+        WriteFoods(FoodsCsv);
+
+        await Create(enabled: true, path: Path.Combine(_root, "Master")).StartAsync(CancellationToken.None);
+
+        Assert.Equal(1, await FoodCountAsync());
+    }
+
+    private sealed class FakeEnvironment(string contentRoot) : IHostEnvironment
+    {
+        public string EnvironmentName { get; set; } = "Testing";
+
+        public string ApplicationName { get; set; } = "NutritionTracker.Api";
+
+        public string ContentRootPath { get; set; } = contentRoot;
+
+        public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
     }
 }

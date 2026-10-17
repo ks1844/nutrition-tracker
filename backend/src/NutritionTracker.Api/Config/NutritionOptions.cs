@@ -17,6 +17,8 @@ public sealed class NutritionOptions
 
     public ScoringOptions Scoring { get; set; } = new();
 
+    public MasterImportOptions MasterImport { get; set; } = new();
+
     public sealed class TargetOptions
     {
         /// <summary>目的（skin / both / muscle）→ タンパク質の係数 g/kg</summary>
@@ -89,5 +91,14 @@ public sealed class NutritionOptions
         public int Good { get; set; } = ScoringSettings.Default.BandGood;
 
         public int Fair { get; set; } = ScoringSettings.Default.BandFair;
+    }
+
+    /// <summary>起動時のマスタ CSV 取り込み（docs/07.マスタデータ仕様.md §5）。</summary>
+    public sealed class MasterImportOptions
+    {
+        public bool Enabled { get; set; } = true;
+
+        /// <summary>CSV を置くフォルダ。相対パスはアプリのコンテンツルート（開発時はプロジェクトのフォルダ）からの位置。</summary>
+        public string Path { get; set; } = "Master";
     }
 }

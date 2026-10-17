@@ -7,3 +7,6 @@ TestResults/
 
 # ローカルの環境変数（docker-compose 用）。実際の値はコミットしない
 backend/.env
+
+# マスタ CSV の実データ。成分表の利用条件（Q-1）が確認できるまでコミットしない（docs/07.マスタデータ仕様.md §8）
+backend/src/NutritionTracker.Api/Master/*.csv

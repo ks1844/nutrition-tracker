@@ -5,6 +5,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- マスタ CSV は実行時にコンテンツルートから読むので、発行物にも含める -->
+    <None Include="Master\**\*.csv" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\NutritionTracker.Domain\NutritionTracker.Domain.csproj" />
   </ItemGroup>
 

@@ -5,6 +5,7 @@ using NutritionTracker.Api.Data;
 using NutritionTracker.Api.Dtos;
 using NutritionTracker.Api.Exceptions;
 using NutritionTracker.Api.Services;
+using NutritionTracker.Api.Services.MasterImport;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,6 +25,8 @@ builder.Services.AddScoped<RecentItemService>();
 builder.Services.AddScoped<TargetService>();
 builder.Services.AddScoped<DashboardService>();
 builder.Services.AddScoped<ContributionService>();
+builder.Services.AddScoped<MasterImportService>();
+builder.Services.AddHostedService<MasterImportHostedService>();
 
 builder.Services.AddControllers()
     .ConfigureApiBehaviorOptions(options =>

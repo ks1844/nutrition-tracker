@@ -24,6 +24,8 @@ public sealed class ApiFixture : IAsyncLifetime
 
     public HttpClient Client { get; private set; } = null!;
 
+    public IServiceProvider Services => _factory!.Services;
+
     public Task InitializeAsync() => InitializeCoreAsync();
 
     public Task DisposeAsync() => DisposeCoreAsync();
@@ -91,6 +93,7 @@ public sealed class ApiFixture : IAsyncLifetime
             builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Default"] = connectionString,
+                ["Nutrition:MasterImport:Enabled"] = "false", // テストでは起動時に取り込まない（取り込みは MasterImportTests で直接検証）
                 ["Database:Password"] = "", // 接続文字列にパスワードが含まれているので、環境変数のパスワードで上書きしない
             }));
             builder.ConfigureTestServices(services =>
