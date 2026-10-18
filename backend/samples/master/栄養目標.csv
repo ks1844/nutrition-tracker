@@ -1,0 +1,17 @@
+栄養素コード,性別,年齢下限,年齢上限,種別,目標値,単位基準,出典メモ
+VITC,all,0,999,RDA,100,PER_DAY,動作確認用ダミー
+VITE_ATOC,all,0,999,RDA,6,PER_DAY,動作確認用ダミー
+VITA_RAE,all,0,999,RDA,700,PER_DAY,動作確認用ダミー
+ZN,all,0,999,RDA,10,PER_DAY,動作確認用ダミー
+FIBTG,all,0,999,RDA,20,PER_DAY,動作確認用ダミー
+CA,all,0,999,RDA,600,PER_DAY,動作確認用ダミー
+FE,all,0,999,RDA,8,PER_DAY,動作確認用ダミー
+MG,all,0,999,RDA,300,PER_DAY,動作確認用ダミー
+K,all,0,999,RDA,2500,PER_DAY,動作確認用ダミー
+VITB1,all,0,999,RDA,1.2,PER_DAY,動作確認用ダミー
+VITB2,all,0,999,RDA,1.4,PER_DAY,動作確認用ダミー
+VITB6,all,0,999,RDA,1.2,PER_DAY,動作確認用ダミー
+VITB12,all,0,999,RDA,2,PER_DAY,動作確認用ダミー
+FOL,all,0,999,RDA,240,PER_DAY,動作確認用ダミー
+VITD,all,0,999,RDA,8,PER_DAY,動作確認用ダミー
+NACL_EQ,all,0,999,DG_MAX,7,PER_DAY,動作確認用ダミー
