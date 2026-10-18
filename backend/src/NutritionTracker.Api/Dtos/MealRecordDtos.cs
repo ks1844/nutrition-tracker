@@ -28,6 +28,7 @@ public sealed record MealRecordInput(DateOnly? EatenOn, string? MealType, string
 /// <param name="MenuName">メニューの名前。</param>
 /// <param name="FoodId">食べた食材の ID。</param>
 /// <param name="FoodName">食材の名前。</param>
+/// <param name="UnitId">単位で入力したときの単位の ID（編集画面で入力を再表示するため）。g 入力やメニューでは null。</param>
 /// <param name="InputMode">入力方式。</param>
 /// <param name="InputValue">入力した値。</param>
 /// <param name="PortionRatio">メニューを食べた割合。単品の食材では null。</param>
@@ -39,6 +40,7 @@ public sealed record MealRecordItemDto(
     string? MenuName,
     long? FoodId,
     string? FoodName,
+    long? UnitId,
     string InputMode,
     decimal InputValue,
     decimal? PortionRatio,
