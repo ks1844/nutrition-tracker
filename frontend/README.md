@@ -7,6 +7,7 @@ npm install
 npm start      # http://localhost:4200
 npm test       # 単体テスト（Vitest）
 npm run build  # 本番ビルド
+npm run e2e    # E2E（Playwright。Chrome を使う。DB・バックエンドの起動が必要）
 ```
 
 - バックエンド（`../backend`、8080）の実 API につながります（開発サーバーの `proxy.conf.json` が `/api` を転送）。先にバックエンドと DB を起動してください → [CLAUDE.md](../CLAUDE.md)

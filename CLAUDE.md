@@ -93,6 +93,7 @@ npm install        # 初回のみ（Node は LTS の 24 系）
 npm start          # http://localhost:4200 （`/api` は proxy.conf.json で localhost:8080 へ）
 npm test           # 単体テスト（Vitest）。`npx ng test --watch=false` で 1 回だけ実行
 npm run build      # 本番ビルド（dist/）
+npm run e2e        # E2E（Playwright。Chrome を使う）。DB・バックエンドを起動し、ダミーの CSV を取り込んでおく
 ```
 
 - バックエンド（8080）の実 API につながる（`proxy.conf.json` が `/api` を転送）。先に DB とバックエンドを起動する。動作確認用のダミーの食材・目標は `backend/samples/master/` を `Master/` にコピーして取り込む → [backend/samples/master/README.md](backend/samples/master/README.md)
