@@ -386,7 +386,7 @@ function nutrientViews(avg: Totals, profile: Profile, ulDays: Record<string, num
     if (target == null || n.isReference) {
       return {
         code: n.code, nameJa: n.nameJa, unit: n.unit, intake,
-        target: { kind: null, amount: null, basis: 'PER_DAY' }, achievementRate: null,
+        target: { kind: null, amount: null, min: null, max: null, ul: null, basis: 'PER_DAY' }, achievementRate: null,
         status: 'NO_TARGET' as const, isIncomplete: inc, isReference: n.isReference,
       };
     }
@@ -398,7 +398,7 @@ function nutrientViews(avg: Totals, profile: Profile, ulDays: Record<string, num
       : ratio >= 1 ? 'ACHIEVED' : 'DEFICIENT';
     const view: NutrientStatusView = {
       code: n.code, nameJa: n.nameJa, unit: n.unit, intake,
-      target: { kind, amount: target, basis: 'PER_DAY' }, achievementRate: rate, status,
+      target: { kind, amount: target, min: null, max: null, ul: null, basis: 'PER_DAY' }, achievementRate: rate, status,
       isIncomplete: inc, isReference: false,
     };
     if (ulDays[n.code] !== undefined) view.ulExceededDays = ulDays[n.code];
@@ -653,7 +653,7 @@ export function handle(req: MockRequest): MockResponse {
       const usable = r.items.filter((it) => {
         if (it.menuId == null) return true;
         const ok2 = !!state.menus.find((x) => x.id === it.menuId && !x.deletedAt);
-        if (!ok2) skipped.push({ menuId: it.menuId, reason: 'MENU_DELETED' });
+        if (!ok2) skipped.push({ menuId: it.menuId, foodId: null, reason: 'MENU_DELETED' });
         return ok2;
       });
       if (!usable.length) continue;
