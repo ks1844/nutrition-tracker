@@ -398,6 +398,43 @@ public sealed class MasterImportTests(ApiFixture fixture) : IAsyncLifetime, IDis
     /// 必須の列がヘッダーにないとき、足りない列名が報告されることを確認します。
     /// </summary>
     /// <returns>テストの完了を表すタスク。</returns>
+    /// <summary>
+    /// 検索では同じ扱いになる別名（ひらがな・カタカナ、全角半角、大文字小文字の違いだけ）は、データベースでも同じ値になって登録できないため、
+    /// 先に出てきた 1 件だけを登録し、あとのものは警告つきで読み飛ばすことを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
+    [Fact]
+    public async Task AliasesThatDifferOnlyByKanaWidthOrCase_AreSkippedWithWarning()
+    {
+        Write(MasterImportService.FoodsFile, FoodsCsv);
+        Write(MasterImportService.AliasesFile, "食品コード,別名\nF1,とうふ\nF1,トウフ\nF1,ﾄｳﾌ\nF1,Tofu\nF1,TOFU\nF2,とうふ\n");
+
+        var result = await ImportAsync();
+
+        Assert.Equal(3, result.Aliases); // F1: とうふ・Tofu、F2: とうふ
+        Assert.Equal(3, result.Warnings.Count);
+        Assert.Contains(result.Warnings, w => w.Contains("食材別名.csv 3行目") && w.Contains("トウフ"));
+        Assert.Equal(
+            ["Tofu", "とうふ"],
+            (await fixture.WithDbAsync(db => db.FoodAliases.Where(a => a.Food!.FoodCode == "F1").Select(a => a.Alias).ToListAsync())).Order().ToList());
+        await ImportAsync(); // 再取り込みでも、重複で失敗しない
+    }
+
+    /// <summary>
+    /// 同じ食材の単位名が、ひらがな・カタカナや全角半角の違いだけで重複しているときは、重さが違う可能性があるため、エラーにすることを確認します。
+    /// </summary>
+    /// <returns>テストの完了を表すタスク。</returns>
+    [Fact]
+    public async Task UnitNamesThatDifferOnlyByKana_AreReportedAsDuplicates()
+    {
+        Write(MasterImportService.FoodsFile, FoodsCsv);
+        Write(MasterImportService.UnitsFile, "食品コード,単位名,1単位あたりグラム,既定フラグ\nF3,おおさじ,18,\nF3,オオサジ,15,\n");
+
+        var ex = await ImportFailsAsync();
+
+        Assert.Contains(ex.Errors, e => e.Contains("食材単位.csv 3行目") && e.Contains("重複"));
+    }
+
     [Fact]
     public async Task MissingRequiredColumn_IsReported()
     {
