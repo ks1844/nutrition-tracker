@@ -9,5 +9,5 @@ npm test       # 単体テスト（Vitest）
 npm run build  # 本番ビルド
 ```
 
-- 現在は **Mock API**（`src/app/api/mock/`、`src/environments/environment.ts` の `useMockApi`）で動作します。データはダミーです。
+- バックエンド（`../backend`、8080）の実 API につながります（開発サーバーの `proxy.conf.json` が `/api` を転送）。先にバックエンドと DB を起動してください → [CLAUDE.md](../CLAUDE.md)
 - 構成と規約: [docs/12.アーキテクチャ.md](../docs/12.アーキテクチャ.md) §3 / 開発の段階: [docs/13.開発手順.md](../docs/13.開発手順.md)

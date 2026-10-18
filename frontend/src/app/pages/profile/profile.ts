@@ -2,7 +2,6 @@
 import { ChangeDetectionStrategy, Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { ProfileApi } from '../../api/profile.api';
-import { MockAdminApi } from '../../api/mock.api';
 import { fieldErrors, toApiError } from '../../api/api-client';
 import { Goal, ProfileInput, Sex } from '../../types/api';
 import { ProfileService } from '../../services/profile.service';
@@ -13,7 +12,6 @@ import { PageHeader } from '../../components/page-header/page-header';
 import { Disclaimer } from '../../components/disclaimer/disclaimer';
 import { Icon } from '../../components/icon/icon';
 import { ChipGroup, ChipOption } from '../../components/chip-group/chip-group';
-import { environment } from '../../../environments/environment';
 
 @Component({
   selector: 'app-profile-page',
@@ -26,12 +24,10 @@ export class ProfilePage implements OnInit {
   readonly first = input(false, { transform: (v: unknown) => v === '1' || v === 1 || v === true });
 
   private readonly api = inject(ProfileApi);
-  private readonly mockApi = inject(MockAdminApi);
   private readonly svc = inject(ProfileService);
   private readonly ui = inject(UiService);
   private readonly router = inject(Router);
 
-  protected readonly mock = environment.useMockApi;
   protected readonly today = todayString();
   protected readonly sexes: { v: Sex; l: string }[] = [{ v: 'female', l: '女性' }, { v: 'male', l: '男性' }];
   protected readonly goals: Goal[] = ['skin', 'muscle', 'both'];
@@ -109,13 +105,5 @@ export class ProfilePage implements OnInit {
     } finally {
       this.saving.set(false);
     }
-  }
-
-  protected async resetMock(withProfile: boolean): Promise<void> {
-    await this.mockApi.reset(withProfile);
-    this.svc.set(null);
-    this.svc.loaded.set(false);
-    this.ui.toast(withProfile ? 'サンプルデータに戻しました' : 'プロフィール未登録にしました', 'info');
-    await this.router.navigateByUrl(withProfile ? '/' : '/profile?first=1');
   }
 }

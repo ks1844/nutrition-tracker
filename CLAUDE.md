@@ -35,7 +35,7 @@
 | 受け入れ基準・テストの期待値・FR との対応 | [docs/10.受け入れ基準.md](docs/10.受け入れ基準.md) |
 | 使う技術（Angular / C# / MySQL）・バージョン・ポート | [docs/11.技術スタック.md](docs/11.技術スタック.md) |
 | プロジェクト構成・レイヤ規約・命名規則 | [docs/12.アーキテクチャ.md](docs/12.アーキテクチャ.md) |
-| 作る順序・各段階の完了条件・Mock API の方針 | [docs/13.開発手順.md](docs/13.開発手順.md) |
+| 作る順序・各段階の完了条件 | [docs/13.開発手順.md](docs/13.開発手順.md) |
 | AWS へのデプロイ・Terraform・費用管理・破棄手順 | [docs/14.デプロイ設計.md](docs/14.デプロイ設計.md) |
 | なぜその設計にしたか | [docs/adr/](docs/adr/) |
 
@@ -95,7 +95,7 @@ npm test           # 単体テスト（Vitest）。`npx ng test --watch=false` �
 npm run build      # 本番ビルド（dist/）
 ```
 
-- **現在は Mock API で動く**（`src/environments/environment.ts` の `useMockApi: true`）。データ・栄養値・目標値は**ダミー**で、公式の値ではない。結線時に `src/app/api/mock/` と `useMockApi` を削除する → [docs/13.開発手順.md](docs/13.開発手順.md)
+- バックエンド（8080）の実 API につながる（`proxy.conf.json` が `/api` を転送）。先に DB とバックエンドを起動する。動作確認用のダミーの食材・目標は `backend/samples/master/` を `Master/` にコピーして取り込む → [backend/samples/master/README.md](backend/samples/master/README.md)
 - デザインはグラスモーフィズム（トークンとクラスは `src/styles.css`）。状態は色だけで表現しない（アイコン・文言・数値を併記）。
 
 ## AWS の操作
