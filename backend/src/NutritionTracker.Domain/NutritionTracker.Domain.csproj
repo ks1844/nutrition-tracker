@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Domain は純粋な計算ロジック。外部への参照（プロジェクト・パッケージ）を持たない（docs/12.アーキテクチャ.md §2.1）。 -->
+  <PropertyGroup>
+    <RootNamespace>NutritionTracker.Domain</RootNamespace>
+  </PropertyGroup>
+
+</Project>
