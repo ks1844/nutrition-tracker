@@ -127,7 +127,7 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         var foodCodes = foods.Select(f => f.Code).ToHashSet();
         var foodNutrients = ParseFoodNutrients(nutrientsCsv, foodCodes, nutrientIds.Keys, errors, warnings);
         var units = ParseUnits(unitsCsv, foodCodes, errors);
-        var aliases = ParseAliases(aliasesCsv, foodCodes, errors);
+        var aliases = ParseAliases(aliasesCsv, foodCodes, errors, warnings);
         var targets = ParseTargets(targetsCsv, nutrientIds.Keys, errors);
 
         if (foods.Count > 0 && nutrientsCsv is not null)
@@ -323,9 +323,9 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
                 errors.Add($"{row.Where}: 食品コード「{food}」が {FoodsFile} にありません（V-1）");
             }
             var name = Required(row, "単位名", 30, errors);
-            if (name is not null && !names.Add((food, name)))
+            if (name is not null && !names.Add((food, CollationKey(name))))
             {
-                errors.Add($"{row.Where}: 食品コード「{food}」の単位名「{name}」が重複しています（V-5）");
+                errors.Add($"{row.Where}: 食品コード「{food}」の単位名「{name}」が重複しています（ひらがな・カタカナ・全角半角・大文字小文字の違いは同じとみなします。V-5）");
             }
             decimal grams = 0m;
             if (!TryDecimal(row["1単位あたりグラム"], out grams) || RoundingPolicy.Round(grams, 2) <= 0m || grams >= 1_000_000m)
@@ -352,7 +352,7 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
     /// <param name="foodCodes">食材の CSV にある食品コード。</param>
     /// <param name="errors">エラーの一覧（追記します）。</param>
     /// <returns>検証を通った行（食品コードと別名）。</returns>
-    private static List<(string FoodCode, string Alias)> ParseAliases(CsvTable? table, HashSet<string> foodCodes, List<string> errors)
+    private static List<(string FoodCode, string Alias)> ParseAliases(CsvTable? table, HashSet<string> foodCodes, List<string> errors, List<string> warnings)
     {
         var result = new List<(string, string)>();
         if (!RequireColumns(table, errors, "食品コード", "別名"))
@@ -360,6 +360,7 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
             return result;
         }
         var seen = new HashSet<(string, string)>();
+        var seenKeys = new HashSet<(string, string)>();
         foreach (var row in table!.Rows)
         {
             var before = errors.Count;
@@ -372,6 +373,12 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
             if (alias is not null && !seen.Add((food, alias)))
             {
                 errors.Add($"{row.Where}: 食品コード「{food}」の別名「{alias}」が重複しています");
+            }
+            else if (alias is not null && errors.Count == before && !seenKeys.Add((food, CollationKey(alias))))
+            {
+                // 「とうふ」と「トウフ」のように、検索では同じ扱いになる別名。DB の照合順序でも同じ値になり、登録できない
+                warnings.Add($"{row.Where}: 別名「{alias}」は、ひらがな・カタカナ・全角半角・大文字小文字の違いを除くと同じ別名があるため、読み飛ばしました");
+                continue;
             }
             if (errors.Count == before)
             {
@@ -544,6 +551,14 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
     }
 
     /// <summary>
+    /// データベースの照合順序（ひらがな・カタカナ・全角半角・大文字小文字を区別しない）で同じ値になる文字列を、同じキーにします。
+    /// </summary>
+    /// <param name="value">別名や単位名。</param>
+    /// <returns>比べるためのキー。</returns>
+    private static string CollationKey(string value) =>
+        SearchTextNormalizer.ToHiragana(SearchTextNormalizer.Normalize(value)).ToLowerInvariant();
+
+    /// <summary>
     /// 空の文字列を null にします。
     /// </summary>
     /// <param name="value">文字列。</param>
@@ -633,7 +648,7 @@ public partial class MasterImportService(AppDbContext db, ILogger<MasterImportSe
         foreach (var (foodCode, alias) in aliases)
         {
             var food = existing[foodCode];
-            if (food.Aliases.All(a => a.Alias != alias))
+            if (food.Aliases.All(a => CollationKey(a.Alias) != CollationKey(alias)))
             {
                 food.Aliases.Add(new FoodAlias { Alias = alias });
             }

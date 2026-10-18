@@ -158,7 +158,7 @@ export interface MenuPreview {
   nutrients: NutrientAmount[];
   servingWeightG: number | null;
   perServing: NutrientAmount[] | null;
-  warnings: string[];
+  warnings: { code: 'FOOD_INACTIVE'; foodId: number; message: string }[];
 }
 
 // ---- 食事記録 ----
@@ -235,7 +235,7 @@ export interface RecentItems {
 
 export interface CopyResult {
   records: MealRecordView[];
-  skipped: { menuId: number; reason: string }[];
+  skipped: { menuId: number | null; foodId: number | null; reason: 'MENU_DELETED' | 'FOOD_INACTIVE' }[];
 }
 
 // ---- ダッシュボード ----
@@ -252,9 +252,16 @@ export interface Scores {
   base: ScoreView;
 }
 
+/**
+ * 栄養素の目標（1 日あたり）。kind / amount は下限型の目標（エネルギー・タンパク質は CALCULATED）。
+ * min / max / ul は目標量の下限・上限・耐容上限量。超えると警告する上限は ul（なければ max）。
+ */
 export interface NutrientTargetView {
-  kind: TargetKind | null;
+  kind: TargetKind | 'CALCULATED' | null;
   amount: number | null;
+  min: number | null;
+  max: number | null;
+  ul: number | null;
   basis: 'PER_DAY';
 }
 

@@ -454,7 +454,7 @@ public class MealRecordService(AppDbContext db, NutritionCatalog catalog)
             .Select(r => new MealRecordDto(
                 r.Id, r.EatenOn, r.MealType, r.Memo,
                 r.Items.OrderBy(i => i.Id).Select(i => new MealRecordItemDto(
-                    i.Id, i.MenuId, i.Menu?.Name, i.FoodId, i.Food?.Name, i.InputMode, i.InputValue, i.PortionRatio, i.AmountG,
+                    i.Id, i.MenuId, i.Menu?.Name, i.FoodId, i.Food?.Name, i.UnitId, i.InputMode, i.InputValue, i.PortionRatio, i.AmountG,
                     nutrients
                         .Join(i.Nutrients, n => n.Id, s => s.NutrientId, (n, s) => new NutrientAmountDto(n.Code, s.Amount, s.IsIncomplete))
                         .ToList())).ToList()))

@@ -186,6 +186,7 @@ public class MealRecordsApiTests(ApiFixture fixture) : IAsyncLifetime
         var item = Assert.Single(created.Items);
         Assert.Equal(150m, item.AmountG); // 1 本 = 150g
         Assert.Equal(("UNIT", 1m), (item.InputMode, item.InputValue));
+        Assert.Equal(s.Golden.CarrotUnitId, item.UnitId); // 編集画面で入力を再表示するための単位 ID
         Assert.Equal(1.35m, Nutrient(item, "PROT").Amount); // 150g × 0.9 ÷ 100 × 1.0
         var stored = await fixture.WithDbAsync(db => db.MealRecordItems.AsNoTracking().SingleAsync());
         Assert.Equal(s.Golden.CarrotUnitId, stored.UnitId);

@@ -178,22 +178,4 @@
   </button>
 </form>
 
-@if (mock) {
-  <section class="glass flex flex-col gap-2 p-4" aria-label="プロトタイプ用の操作">
-    <h2 class="h-sub m-0">プロトタイプ用の操作</h2>
-    <p class="muted m-0 text-[0.8rem] font-semibold">
-      Mock データを初期状態に戻します（本番にはありません）。
-    </p>
-    <div class="flex flex-wrap gap-2">
-      <button type="button" class="btn btn-sm" (click)="resetMock(true)">
-        <app-icon name="refresh" [size]="15" />
-        サンプルデータに戻す
-      </button>
-      <button type="button" class="btn btn-sm" (click)="resetMock(false)">
-        <app-icon name="refresh" [size]="15" />
-        プロフィール未登録にする
-      </button>
-    </div>
-  </section>
-}
 <app-disclaimer />

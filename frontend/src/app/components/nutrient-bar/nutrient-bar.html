@@ -16,7 +16,7 @@
       {{ intake() }}
       <span class="muted ml-0.5 text-[0.75rem] font-bold">{{ n().unit }}</span>
     </span>
-    @if (n().target.amount !== null) {
+    @if (hasTarget()) {
       <span class="tabnum muted text-[0.78rem] font-bold">
         {{ upper() ? '上限' : '目標' }} {{ target() }}{{ n().unit }}
         @if (!upper()) {
@@ -29,7 +29,7 @@
       </span>
     }
   </div>
-  @if (n().target.amount !== null) {
+  @if (hasTarget()) {
     <div
       class="bar-track mt-2"
       role="progressbar"
@@ -47,6 +47,9 @@
         ></span>
       }
     </div>
+  }
+  @if (!upper() && limit() !== null) {
+    <p class="muted mt-1 text-[0.72rem] font-bold">上限 {{ limitText() }}{{ n().unit }}</p>
   }
   @if (n().ulExceededDays) {
     <p class="mt-1.5 flex items-center gap-1 text-[0.75rem] font-bold st-over rounded-lg px-2 py-1">
